@@ -169,13 +169,31 @@ Egen fane ("Plader") med én "Synkronisér fra Discogs"-knap i stedet for manuel
 5. Slet en plade og bekræft beskeden om, at den kommer tilbage ved næste synkronisering, hvis den stadig er i din Discogs-samling.
 6. Hvis synkronisering fejler med en fejlbesked om `DISCOGS_TOKEN`, er secret'en fra trin 1 ikke sat korrekt endnu.
 
+### Anders And-årgange (tilføjet)
+
+Egen fane ("Anders And"), samme mønster som Jumbo-bøger (år + valgfrit cover af første blad), men bygget direkte med detalje-visning-før-redigering (se næste afsnit) i stedet for at gå gennem det ældre direkte-redigér-mønster. Fast sorteret efter årgang, ingen søgning/paginering (kun 5 rækker i dag). `comic_years` var allerede scaffoldet i databasen med RLS, så ingen ny SQL var nødvendig.
+
+### Detalje-visning før redigering (rettet for Jumbo-bøger og Plader)
+
+Bøgerne har fra starten haft en detalje-modal (klik på et cover viser titel/forfatter/år/note osv. uden at kræve login — kun "Redigér"/"Slet"-knapperne i den kræver det). Jumbo-bøger og Plader fik ved en fejl IKKE denne detalje-visning, da de blev bygget — et klik gik direkte til redigeringsformularen, som starter med et login-tjek, så en besøgende (inkl. dig selv, hvis du ikke er logget ind på mobilen) fik en login-prompt i stedet for bare at kunne se, hvad kortet indeholdt. Rettet ved at give begge de samme delte detalje-modaler (`jumbo-detail-backdrop`, `record-detail-backdrop`) som bøgerne — klik viser nu altid info frit, med "Redigér"/"Slet" som separate, login-krævende handlinger inde i den visning.
+
+### Mobilvisning: modal under skærmen (rettet)
+
+Modaler (login, formularer, detaljer) blev tidligere positioneret med ren `vh`/`inset:0`. Nogle mobilbrowsere (observeret på Samsung Internet) regner `vh` ud fra den fulde layout-viewport frem for den faktisk synlige del af skærmen — særligt når adresselinjen er synlig eller tastaturet er åbent — så en bund-forankret modal kunne ende delvist eller helt under den synlige skærm. Rettet ved at holde en CSS-variabel `--app-vh` opdateret fra JS ud fra `window.visualViewport` (som følger den faktisk synlige højde, også når tastaturet åbner), og bruge den i stedet for `vh` i `.modal-backdrop`/`.modal`. Kunne ikke testes på en fysisk Samsung-enhed herfra — bekræft venligst at popuppen nu opfører sig korrekt på din telefon.
+
+### Ikon til hjemmeskærm/faneblad (tilføjet)
+
+`public/icons/` + `site.webmanifest` + `favicon.ico` giver appen et rigtigt ikon (et "A"-monogram i appens farver) i browserfanen og når den føjes til hjemmeskærmen på mobil ("Føj til startskærm" i browserens menu). Ingen opsætning nødvendig ud over at have filerne med i deploy'et (de ligger i `public/`, så de følger automatisk med Netlify-deploy'et).
+
 For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåede `item_tags`/`favorites`-tabel i `migrations/SCHEMA_MAPPING.md`.
 
 ## 9. Kendte begrænsninger
 
-- Bøger, Jumbo-bøger og Plader har UI. `comic_years` og `trips` er stadig kun scaffoldet i databasen.
+- Bøger, Jumbo-bøger, Anders And-årgange og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
 - Open Library CORS er ikke bekræftet live (se §4/§6 i ARCHITECTURE.md) — test det først.
+- Bogcovers kommer i dag kun fra Open Library, som har begrænset dækning af nyere danske bøger — se ARCHITECTURE.md §11 for en gennemgang af alternativer og en anbefaling.
 - Discogs-synkronisering er ikke afprøvet mod den ægte Discogs-API og den ægte Edge Function-runtime (Deno) — kun logikken er enhedstestet, og hele flowet er testet ende-til-ende mod en lokal Postgres med et mock-svar. Følg testplanen i §8 første gang, du kører det for rigtigt.
+- Mobilvisnings-rettelsen (se §8) er testet i en headless browser i mobilstørrelse, ikke på en fysisk Samsung-enhed — bekræft gerne i praksis.
 - Ingen CSV-bulk-import (fandtes i Atlas 1, ikke i MVP-scopet for Atlas 2).
 - Refresh-token-fornyelse er minimal, rå fetch uden SDK — fungerer for normal brug, se ARCHITECTURE.md §7 for kendte kant-tilfælde.
 - `legacy-node-sqlite/` er ikke en del af produktionsappen — se dens egen README for status.

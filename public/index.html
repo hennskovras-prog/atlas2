@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Atlas — dit personlige kulturbibliotek</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#B0603F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Atlas">
 <style>
   /* ============ Designsystem: CSS custom properties, som streaming-appen ============ */
   :root{
@@ -131,9 +140,17 @@
   .pagination button{ padding:8px 14px; border-radius: var(--radius-sm); border:1px solid var(--border); background:var(--bg-elevated); }
   .pagination button.active{ background: var(--accent); color:#fff; border-color: var(--accent); }
 
-  /* ---- Modal / dialog (delt mønster: opret/redigér/detalje) ---- */
+  /* ---- Modal / dialog (delt mønster: opret/redigér/detalje) ----
+     Positioneret via --app-vh (sat fra JS ud fra window.visualViewport), ikke
+     ren vh/inset — nogle mobilbrowsere (bl.a. Samsung Internet) regner vh ud
+     fra den fulde layout-viewport og ikke den faktisk synlige del, så en
+     bund-forankret (align-items:flex-end) fixed boks kan ende delvist under
+     den synlige skærm, særligt når adresselinjen/tastaturet fylder noget af
+     skærmen. --app-vh følger den faktisk synlige højde og opdateres løbende. */
   .modal-backdrop{
-    position:fixed; inset:0; background: rgba(40, 30, 20, 0.45);
+    position:fixed; top:0; left:0; right:0;
+    height: var(--app-vh, 100vh);
+    background: rgba(40, 30, 20, 0.45);
     display:flex; align-items:flex-end; justify-content:center; z-index: 100;
     opacity:0; pointer-events:none; transition: opacity 0.15s ease;
   }
@@ -141,7 +158,8 @@
   .modal{
     background: var(--bg-elevated); width:100%; max-width: 640px;
     border-radius: var(--radius) var(--radius) 0 0;
-    max-height: 92vh; overflow-y:auto; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)) 20px;
+    max-height: calc(var(--app-vh, 100vh) - 24px); overflow-y:auto;
+    padding: 20px 20px calc(20px + env(safe-area-inset-bottom)) 20px;
     transform: translateY(12px); transition: transform 0.15s ease;
   }
   .modal-backdrop.open .modal{ transform: translateY(0); }
@@ -178,6 +196,7 @@
   .modal-actions .spacer{ flex:1; }
 
   .detail-cover{ width: 160px; aspect-ratio:2/3; border-radius: var(--radius-sm); overflow:hidden; float:left; margin: 0 16px 10px 0; background:#EFE7DA; }
+  .detail-cover.square{ aspect-ratio:1/1; }
   .detail-cover img{ width:100%; height:100%; object-fit:cover; }
   .detail-meta{ color: var(--text-muted); font-size:0.9rem; margin: 2px 0; }
   .detail-notes{ margin-top: 10px; white-space: pre-wrap; }
@@ -206,6 +225,7 @@
   <nav class="tabs" id="tabs">
     <button class="tab-btn active" data-tab="boeger">Bøger</button>
     <button class="tab-btn" data-tab="jumbo">Jumbo-bøger</button>
+    <button class="tab-btn" data-tab="comics">Anders And</button>
     <button class="tab-btn" data-tab="plader">Plader</button>
     <button class="tab-btn" disabled>Film <span class="soon">snart</span></button>
     <button class="tab-btn" disabled>Rejser <span class="soon">snart</span></button>
@@ -242,6 +262,15 @@
     </div>
     <div class="count-line" id="jumbo-count-line"></div>
     <div class="grid" id="jumbo-grid"></div>
+  </div>
+
+  <div id="view-comics" style="display:none;">
+    <div class="toolbar">
+      <span style="flex:1 1 auto; color:var(--text-muted); font-size:0.9rem;">Sorteret efter årgang.</span>
+      <button class="btn" id="add-comic-btn">+ Tilføj årgang</button>
+    </div>
+    <div class="count-line" id="comics-count-line"></div>
+    <div class="grid" id="comics-grid"></div>
   </div>
 
   <div id="view-plader" style="display:none;">
@@ -375,6 +404,55 @@
   </div>
 </div>
 
+<!-- Jumbo-bøger: delt modal detalje (vises ved klik, ingen login krævet) -->
+<div class="modal-backdrop" id="jumbo-detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Jumbo-bog</h2>
+      <button class="modal-close" data-close="jumbo-detail-backdrop">✕</button>
+    </div>
+    <div id="jumbo-detail-body"></div>
+  </div>
+</div>
+
+<!-- Anders And-årgange: delt modal opret/redigér -->
+<div class="modal-backdrop" id="comic-form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="comic-form-title">Tilføj årgang</h2>
+      <button class="modal-close" data-close="comic-form-backdrop">✕</button>
+    </div>
+    <form id="comic-form">
+      <input type="hidden" id="cf-id">
+      <div class="field">
+        <label for="cf-year">Årgang *</label>
+        <input type="number" id="cf-year" required>
+      </div>
+      <div class="field">
+        <label for="cf-cover-file">Cover af første blad (valgfrit)</label>
+        <input type="file" id="cf-cover-file" accept="image/*">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="comic-form-delete-btn" style="display:none;">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="comic-form-backdrop">Annullér</button>
+        <button type="submit" class="btn" id="comic-form-save-btn">Gem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Anders And-årgange: delt modal detalje (vises ved klik, ingen login krævet) -->
+<div class="modal-backdrop" id="comic-detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Anders And-årgang</h2>
+      <button class="modal-close" data-close="comic-detail-backdrop">✕</button>
+    </div>
+    <div id="comic-detail-body"></div>
+  </div>
+</div>
+
 <!-- Plader: redigér-modal (ingen "opret" — plader tilføjes kun via Discogs-sync) -->
 <div class="modal-backdrop" id="record-form-backdrop">
   <div class="modal">
@@ -404,6 +482,17 @@
         <button type="submit" class="btn">Gem</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Plader: delt modal detalje (vises ved klik, ingen login krævet) -->
+<div class="modal-backdrop" id="record-detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Plade</h2>
+      <button class="modal-close" data-close="record-detail-backdrop">✕</button>
+    </div>
+    <div id="record-detail-body"></div>
   </div>
 </div>
 
@@ -740,6 +829,22 @@ function showToast(msg) {
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// Se note ved .modal-backdrop i <style>: holder --app-vh i sync med den
+// faktisk synlige viewport (visualViewport), så modaler ikke havner delvist
+// under skærmen på mobiler, der regner vh ud fra den fulde layout-viewport
+// (bl.a. set på Samsung Internet) eller når tastaturet fylder noget af skærmen.
+function syncAppViewportHeight() {
+  const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  document.documentElement.style.setProperty('--app-vh', h + 'px');
+}
+syncAppViewportHeight();
+window.addEventListener('resize', syncAppViewportHeight);
+window.addEventListener('orientationchange', syncAppViewportHeight);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncAppViewportHeight);
+  window.visualViewport.addEventListener('scroll', syncAppViewportHeight);
+}
 document.querySelectorAll('[data-close]').forEach((el) => {
   el.addEventListener('click', () => closeModal(el.dataset.close));
 });
@@ -1125,6 +1230,167 @@ document.getElementById('form-delete-btn').addEventListener('click', () => {
 // dropdown-admin-panel — se ATLAS_1_HANDOVER.md).
 // ============================================================================
 
+const comicsApi = {
+  list: () => pgrest('GET', '/comic_years?' + qs({ select: '*', order: 'year.asc' })),
+  create: (fields) => pgrest('POST', '/comic_years', { body: fields, singular: true }),
+  update: (id, fields) => pgrest('PATCH', '/comic_years?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  remove: (id) => pgrest('DELETE', '/comic_years?' + qs({ id: `eq.${id}` })),
+};
+
+let comicYears = [];
+let comicsLoadedOnce = false;
+
+async function loadComicYears() {
+  try {
+    comicYears = await comicsApi.list();
+    comicsLoadedOnce = true;
+    renderComics();
+  } catch (err) {
+    document.getElementById('comics-grid').innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse Anders And-årgange: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function comicCardHTML(cy) {
+  const coverHtml = cy.cover_data
+    ? `<img src="${cy.cover_data}" alt="Cover: Årgang ${cy.year}" loading="lazy">`
+    : `<div class="cover-fallback">🦆</div>`;
+  return `
+    <div class="card" data-id="${cy.id}" data-action="open-comic-detail">
+      <div class="cover-wrap">${coverHtml}</div>
+      <div class="body">
+        <div class="title">Årgang ${cy.year}</div>
+      </div>
+    </div>`;
+}
+
+function renderComics() {
+  const countLine = document.getElementById('comics-count-line');
+  const grid = document.getElementById('comics-grid');
+  countLine.textContent = comicYears.length ? `${comicYears.length} årgange` : '';
+  if (comicYears.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">🦆</div><div>Der er endnu ikke tilføjet nogen årgange. Tryk "+ Tilføj årgang" for at komme i gang.</div></div>`;
+    return;
+  }
+  grid.innerHTML = comicYears.map(comicCardHTML).join('');
+}
+
+document.getElementById('comics-grid').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-action="open-comic-detail"]');
+  if (card) openComicDetail(Number(card.dataset.id));
+});
+
+function openComicDetail(id) {
+  const cy = comicYears.find((x) => x.id === id);
+  if (!cy) return;
+  const coverHtml = cy.cover_data
+    ? `<img src="${cy.cover_data}" alt="">`
+    : `<div class="cover-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">🦆</div>`;
+  document.getElementById('comic-detail-body').innerHTML = `
+    <div class="clearfix">
+      <div class="detail-cover">${coverHtml}</div>
+      <h2 style="margin-bottom:4px;">Årgang ${cy.year}</h2>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="comic-detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn secondary" data-close="comic-detail-backdrop">Luk</button>
+      <button class="btn" id="comic-detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('comic-detail-edit-btn').addEventListener('click', () => {
+    closeModal('comic-detail-backdrop');
+    openComicForm(cy);
+  });
+  document.getElementById('comic-detail-delete-btn').addEventListener('click', async () => {
+    if (!requireAuthOrPrompt()) return;
+    if (!confirm(`Slet årgang ${cy.year}? Dette kan ikke fortrydes.`)) return;
+    closeModal('comic-detail-backdrop');
+    try {
+      await comicsApi.remove(cy.id);
+      comicYears = comicYears.filter((x) => x.id !== cy.id);
+      renderComics();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+  openModal('comic-detail-backdrop');
+}
+
+let pendingComicCoverDataUri = undefined;
+
+function resetComicForm() {
+  document.getElementById('comic-form').reset();
+  document.getElementById('cf-id').value = '';
+  document.getElementById('comic-form-delete-btn').style.display = 'none';
+  pendingComicCoverDataUri = undefined;
+}
+
+function openComicForm(cy) {
+  if (!requireAuthOrPrompt()) return;
+  resetComicForm();
+  if (cy) {
+    document.getElementById('comic-form-title').textContent = `Redigér årgang ${cy.year}`;
+    document.getElementById('cf-id').value = cy.id;
+    document.getElementById('cf-year').value = cy.year;
+    document.getElementById('comic-form-delete-btn').style.display = '';
+  } else {
+    document.getElementById('comic-form-title').textContent = 'Tilføj årgang';
+  }
+  openModal('comic-form-backdrop');
+  document.getElementById('cf-year').focus();
+}
+
+document.getElementById('add-comic-btn').addEventListener('click', () => openComicForm(null));
+
+document.getElementById('cf-cover-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { pendingComicCoverDataUri = reader.result; showToast('Cover klar til at blive gemt.'); };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('comic-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('cf-id').value;
+  const payload = { year: Number(document.getElementById('cf-year').value) };
+  // Samme bevidste regel som for bøger/Jumbo: cover_data sendes KUN hvis ændret.
+  if (pendingComicCoverDataUri !== undefined) payload.cover_data = pendingComicCoverDataUri;
+
+  try {
+    if (id) {
+      const updated = await comicsApi.update(id, payload);
+      const idx = comicYears.findIndex((cy) => cy.id === updated.id);
+      if (idx !== -1) comicYears[idx] = updated;
+      showToast('Årgang opdateret.');
+    } else {
+      const created = await comicsApi.create(payload);
+      comicYears.push(created);
+      showToast('Årgang tilføjet.');
+    }
+    comicYears.sort((a, b) => a.year - b.year);
+    closeModal('comic-form-backdrop');
+    renderComics();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('comic-form-delete-btn').addEventListener('click', async () => {
+  const id = Number(document.getElementById('cf-id').value);
+  const year = document.getElementById('cf-year').value;
+  if (!confirm(`Slet årgang ${year}? Dette kan ikke fortrydes.`)) return;
+  try {
+    await comicsApi.remove(id);
+    comicYears = comicYears.filter((cy) => cy.id !== id);
+    closeModal('comic-form-backdrop');
+    renderComics();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
 const jumboApi = {
   list: () => pgrest('GET', '/jumbo_books?' + qs({ select: '*', order: 'number.asc' })),
   create: (fields) => pgrest('POST', '/jumbo_books', { body: fields, singular: true }),
@@ -1151,7 +1417,7 @@ function jumboCardHTML(jb) {
     ? `<img src="${jb.cover_data}" alt="Cover: ${escapeHtml(jb.title)}" loading="lazy">`
     : `<div class="cover-fallback">📙</div>`;
   return `
-    <div class="card" data-id="${jb.id}" data-action="open-jumbo-edit">
+    <div class="card" data-id="${jb.id}" data-action="open-jumbo-detail">
       <div class="cover-wrap">${coverHtml}</div>
       <div class="body">
         <div class="title">${escapeHtml(jb.title)}</div>
@@ -1172,9 +1438,49 @@ function renderJumbo() {
 }
 
 document.getElementById('jumbo-grid').addEventListener('click', (e) => {
-  const card = e.target.closest('[data-action="open-jumbo-edit"]');
-  if (card) openJumboForm(jumboBooks.find((jb) => jb.id === Number(card.dataset.id)));
+  const card = e.target.closest('[data-action="open-jumbo-detail"]');
+  if (card) openJumboDetail(Number(card.dataset.id));
 });
+
+// Detalje-modal (fri at se, ligesom bøgerne — login kræves først når man
+// rent faktisk trykker Redigér eller Slet, ikke bare for at kigge).
+function openJumboDetail(id) {
+  const jb = jumboBooks.find((x) => x.id === id);
+  if (!jb) return;
+  const coverHtml = jb.cover_data
+    ? `<img src="${jb.cover_data}" alt="">`
+    : `<div class="cover-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">📙</div>`;
+  document.getElementById('jumbo-detail-body').innerHTML = `
+    <div class="clearfix">
+      <div class="detail-cover">${coverHtml}</div>
+      <h2 style="margin-bottom:4px;">${escapeHtml(jb.title)}</h2>
+      <div class="detail-meta">Jumbo-bog nr. ${jb.number}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="jumbo-detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn secondary" data-close="jumbo-detail-backdrop">Luk</button>
+      <button class="btn" id="jumbo-detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('jumbo-detail-edit-btn').addEventListener('click', () => {
+    closeModal('jumbo-detail-backdrop');
+    openJumboForm(jb);
+  });
+  document.getElementById('jumbo-detail-delete-btn').addEventListener('click', async () => {
+    if (!requireAuthOrPrompt()) return;
+    if (!confirm(`Slet "${jb.title}"? Dette kan ikke fortrydes.`)) return;
+    closeModal('jumbo-detail-backdrop');
+    try {
+      await jumboApi.remove(jb.id);
+      jumboBooks = jumboBooks.filter((x) => x.id !== jb.id);
+      renderJumbo();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+  openModal('jumbo-detail-backdrop');
+}
 
 let pendingJumboCoverDataUri = undefined;
 
@@ -1294,7 +1600,7 @@ function recordCardHTML(rec) {
     ? `<img src="${escapeHtml(rec.cover_url)}" alt="Cover: ${escapeHtml(rec.title)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=&quot;cover-fallback&quot;>💿</div>'">`
     : `<div class="cover-fallback">💿</div>`;
   return `
-    <div class="card" data-id="${rec.id}" data-action="open-record-edit">
+    <div class="card" data-id="${rec.id}" data-action="open-record-detail">
       <div class="cover-wrap">${coverHtml}</div>
       <div class="body">
         <div class="title">${escapeHtml(rec.title)}</div>
@@ -1315,9 +1621,49 @@ function renderRecords() {
 }
 
 document.getElementById('records-grid').addEventListener('click', (e) => {
-  const card = e.target.closest('[data-action="open-record-edit"]');
-  if (card) openRecordForm(records.find((r) => r.id === Number(card.dataset.id)));
+  const card = e.target.closest('[data-action="open-record-detail"]');
+  if (card) openRecordDetail(Number(card.dataset.id));
 });
+
+// Detalje-modal (fri at se — login kræves først ved Redigér/Slet, se samme
+// mønster for Jumbo-bøger ovenfor og bøger).
+function openRecordDetail(id) {
+  const rec = records.find((x) => x.id === id);
+  if (!rec) return;
+  const coverHtml = rec.cover_url
+    ? `<img src="${escapeHtml(rec.cover_url)}" alt="" onerror="this.parentElement.innerHTML='<div class=&quot;cover-fallback&quot; style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;&quot;>💿</div>'">`
+    : `<div class="cover-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">💿</div>`;
+  document.getElementById('record-detail-body').innerHTML = `
+    <div class="clearfix">
+      <div class="detail-cover square">${coverHtml}</div>
+      <h2 style="margin-bottom:4px;">${escapeHtml(rec.title)}</h2>
+      <div class="detail-meta">${escapeHtml(rec.artist) || '—'}${rec.year ? ' · ' + rec.year : ''}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="record-detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn secondary" data-close="record-detail-backdrop">Luk</button>
+      <button class="btn" id="record-detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('record-detail-edit-btn').addEventListener('click', () => {
+    closeModal('record-detail-backdrop');
+    openRecordForm(rec);
+  });
+  document.getElementById('record-detail-delete-btn').addEventListener('click', async () => {
+    if (!requireAuthOrPrompt()) return;
+    if (!confirm(`Slet "${rec.title}"? Den kommer tilbage ved næste Discogs-synkronisering, hvis den stadig er i din samling der.`)) return;
+    closeModal('record-detail-backdrop');
+    try {
+      await recordsApi.remove(rec.id);
+      records = records.filter((x) => x.id !== rec.id);
+      renderRecords();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+  openModal('record-detail-backdrop');
+}
 
 function openRecordForm(rec) {
   if (!requireAuthOrPrompt()) return;
@@ -1402,8 +1748,10 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-btn[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('view-boeger').style.display = tab === 'boeger' ? '' : 'none';
   document.getElementById('view-jumbo').style.display = tab === 'jumbo' ? '' : 'none';
+  document.getElementById('view-comics').style.display = tab === 'comics' ? '' : 'none';
   document.getElementById('view-plader').style.display = tab === 'plader' ? '' : 'none';
   if (tab === 'jumbo' && !jumboLoadedOnce) loadJumboBooks();
+  if (tab === 'comics' && !comicsLoadedOnce) loadComicYears();
   if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
 }
 document.querySelectorAll('.tab-btn[data-tab]').forEach((btn) => {
