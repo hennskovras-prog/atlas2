@@ -313,9 +313,9 @@
       </div>
 
       <div class="field" id="ol-search-field">
-        <label>Søg på Open Library (autofylder titel, forfatter, år og cover)</label>
+        <label>Søg efter bog (autofylder titel, forfatter, år og cover — prøver Open Library og Google Books)</label>
         <input type="text" id="ol-query" placeholder="Skriv titel og tryk søg…" autocomplete="off">
-        <button type="button" class="btn secondary" id="ol-search-btn" style="margin-top:6px;">Søg på Open Library</button>
+        <button type="button" class="btn secondary" id="ol-search-btn" style="margin-top:6px;">Søg</button>
         <div class="ol-results" id="ol-results"></div>
       </div>
 
@@ -743,6 +743,7 @@ function normalizeOlResults(docs) {
     cover_id: doc.cover_i || null,
     openlibrary_key: doc.key || null,
     cover_url: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : null,
+    _source: 'Open Library',
   }));
 }
 
@@ -752,6 +753,62 @@ function blobToDataUri(blob) {
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(new Error('Kunne ikke læse billedet.'));
     reader.readAsDataURL(blob);
+  });
+}
+
+// ============================================================================
+// Google Books — supplerende kilde ved siden af Open Library (se
+// docs/ARCHITECTURE.md §12: der findes ikke en åben, nøglefri dansk
+// bibliotekstjeneste for covers — DBC's services er forbeholdt biblioteker).
+// Google Books har ofte bedre dækning af nyere/danske udgivelser. Bruges
+// UDEN API-nøgle (samme "prøv direkte, degrader roligt" som Open Library) —
+// fejler stille (tomt resultat, ikke en fejlbesked) hvis den mod forventning
+// kræver en nøgle eller blokeres af CORS i praksis; Open Library er stadig
+// hovedkilden og kræver ikke Google Books for at virke.
+// ============================================================================
+
+const GOOGLE_BOOKS_SEARCH_URL = 'https://www.googleapis.com/books/v1/volumes';
+
+function normalizeGoogleResults(items) {
+  return (items || []).slice(0, 10).map((item) => {
+    const vi = item.volumeInfo || {};
+    const isbn13 = (vi.industryIdentifiers || []).find((x) => x.type === 'ISBN_13');
+    const isbn10 = (vi.industryIdentifiers || []).find((x) => x.type === 'ISBN_10');
+    let coverUrl = vi.imageLinks && (vi.imageLinks.thumbnail || vi.imageLinks.smallThumbnail);
+    if (coverUrl) coverUrl = coverUrl.replace(/^http:/, 'https:'); // Google leverer nogle gange http://
+    return {
+      title: vi.title || '',
+      author: (vi.authors && vi.authors[0]) || '',
+      year: vi.publishedDate ? parseInt(vi.publishedDate.slice(0, 4), 10) || null : null,
+      isbn: (isbn13 && isbn13.identifier) || (isbn10 && isbn10.identifier) || null,
+      cover_id: null,
+      openlibrary_key: null,
+      cover_url: coverUrl || null,
+      _source: 'Google Books',
+    };
+  });
+}
+
+const googleBooksApi = {
+  async search(q) {
+    try {
+      const res = await fetch(`${GOOGLE_BOOKS_SEARCH_URL}?q=${encodeURIComponent(q)}&maxResults=10`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return normalizeGoogleResults(data.items);
+    } catch (e) {
+      return []; // ren tillægskilde — fejler den, søger vi bare videre uden den
+    }
+  },
+};
+
+function dedupeSearchResults(results) {
+  const seen = new Set();
+  return results.filter((r) => {
+    const key = (r.isbn || (r.title + '|' + r.author)).toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
@@ -1141,7 +1198,16 @@ async function doOpenLibrarySearch() {
   const resultsEl = document.getElementById('ol-results');
   resultsEl.innerHTML = '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Søger…</div>';
   try {
-    const results = await openLibraryApi.search(q);
+    // Open Library er hovedkilden (og skal fejle synligt, hvis den fejler —
+    // se OPENLIBRARY_PROXY_URL-fallbacken i openLibraryApi.search). Google
+    // Books er en ren tillægskilde: den fejler stille til et tomt resultat
+    // (se googleBooksApi.search), så en Google Books-hikke aldrig blokerer
+    // Open Library-resultater.
+    const [olResults, googleResults] = await Promise.all([
+      openLibraryApi.search(q),
+      googleBooksApi.search(q),
+    ]);
+    const results = dedupeSearchResults([...olResults, ...googleResults]);
     if (!results.length) {
       resultsEl.innerHTML = '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Ingen resultater — udfyld manuelt i stedet.</div>';
       return;
@@ -1149,7 +1215,9 @@ async function doOpenLibrarySearch() {
     resultsEl.innerHTML = results.map((r, i) => `
       <div class="ol-result">
         <img src="${r.cover_url || ''}" onerror="this.style.visibility='hidden'">
-        <div class="info">${escapeHtml(r.title)}${r.author ? ' — ' + escapeHtml(r.author) : ''}${r.year ? ' (' + r.year + ')' : ''}</div>
+        <div class="info">${escapeHtml(r.title)}${r.author ? ' — ' + escapeHtml(r.author) : ''}${r.year ? ' (' + r.year + ')' : ''}
+          <span style="color:var(--text-muted); font-size:0.75em;"> · ${escapeHtml(r._source)}</span>
+        </div>
         <button type="button" data-pick="${i}">Vælg</button>
       </div>`).join('');
     resultsEl.querySelectorAll('[data-pick]').forEach((btn) => {
@@ -1159,6 +1227,7 @@ async function doOpenLibrarySearch() {
         document.getElementById('f-author').value = r.author || '';
         document.getElementById('f-year').value = r.year || '';
         document.getElementById('f-isbn').value = r.isbn || '';
+        document.getElementById('f-source').value = r._source || '';
         olQueuedFields.cover_id = r.cover_id;
         olQueuedFields.openlibrary_key = r.openlibrary_key;
         if (r.cover_url) {
@@ -1168,7 +1237,7 @@ async function doOpenLibrarySearch() {
             if (dataUri) pendingCoverDataUri = dataUri;
           } catch (e) { /* ikke kritisk — bogen kan stadig gemmes uden cover */ }
         }
-        showToast('Felter udfyldt fra Open Library.');
+        showToast(`Felter udfyldt fra ${r._source}.`);
       });
     });
   } catch (err) {

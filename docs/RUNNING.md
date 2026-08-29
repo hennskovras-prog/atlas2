@@ -191,7 +191,7 @@ For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåed
 
 - Bøger, Jumbo-bøger, Anders And-årgange og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
 - Open Library CORS er ikke bekræftet live (se §4/§6 i ARCHITECTURE.md) — test det først.
-- Bogcovers kommer i dag kun fra Open Library, som har begrænset dækning af nyere danske bøger — se ARCHITECTURE.md §11 for en gennemgang af alternativer og en anbefaling.
+- Bogsøgning bruger nu Open Library + Google Books (tilføjet som ekstra kilde for bedre dækning af nyere danske bøger) — se ARCHITECTURE.md §12. Der findes ikke et åbent dansk bibliotek-alternativ (DBC's services er forbeholdt biblioteker). Google Books-kaldet er ikke testet mod den rigtige API fra denne sandkasse — bekræft i praksis at det giver resultater ved søgning.
 - Discogs-synkronisering er ikke afprøvet mod den ægte Discogs-API og den ægte Edge Function-runtime (Deno) — kun logikken er enhedstestet, og hele flowet er testet ende-til-ende mod en lokal Postgres med et mock-svar. Følg testplanen i §8 første gang, du kører det for rigtigt.
 - Mobilvisnings-rettelsen (se §8) er testet i en headless browser i mobilstørrelse, ikke på en fysisk Samsung-enhed — bekræft gerne i praksis.
 - Ingen CSV-bulk-import (fandtes i Atlas 1, ikke i MVP-scopet for Atlas 2).
