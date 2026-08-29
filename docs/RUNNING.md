@@ -84,9 +84,45 @@ De rigtige 301 bøger + de fire øvrige samlinger er migreret fra Turso. Sådan 
 
 Se `docs/ARCHITECTURE.md` §9 for den fulde historik (inkl. et par fejl, der blev fundet og rettet undervejs ved at teste lokalt først), og `migrations/SCHEMA_MAPPING.md` for felt-for-felt mapping.
 
-## 7. Deploy til produktion
+## 7. Deploy til produktion (GitHub + Netlify, samme mønster som "Serier & film")
+
+Projektet ligger nu som et lokalt git-repo i `~/Development/atlas2` med et første commit ("Initial import fra Cowork"). Modsat "Serier & film" (som deployes manuelt via Netlify CLI uden GitHub) er Atlas 2 sat op til **kontinuerlig deploy**: et `git push` udløser automatisk en ny Netlify-deploy. Sådan kobler du det sammen første gang:
+
+### 7.1 Opret GitHub-repo
+
+1. Gå til [github.com/new](https://github.com/new), opret et nyt, **tomt** repository (kald det fx `atlas2`) — **fravælg** "Add a README" og `.gitignore`, da repoet allerede har indhold.
+2. I en terminal på din egen computer:
+   ```bash
+   cd ~/Development/atlas2
+   git remote add origin https://github.com/<dit-brugernavn>/atlas2.git
+   git push -u origin main
+   ```
+   (Brug `git@github.com:<dit-brugernavn>/atlas2.git` i stedet, hvis du har SSH-nøgler sat op til GitHub — begge virker, HTTPS beder bare om login i browseren første gang.)
+
+### 7.2 Forbind til Netlify
+
+1. Gå til [app.netlify.com](https://app.netlify.com) → **Add new site** → **Import an existing project**.
+2. Vælg **GitHub**, godkend adgang hvis det er første gang, og vælg `atlas2`-repoet.
+3. Under build-indstillinger: lad **Build command** stå tom (der er intet build-step) og sæt **Publish directory** til `public`.
+4. Klik **Deploy site**. Efter et øjeblik får du en live-URL (samme mønster som `https://extraordinary-cactus-44673c.netlify.app/` for "Serier & film"). Du kan give sitet et pænere navn under **Site settings → Site details → Change site name**.
+
+### 7.3 Fremtidige opdateringer
 
 ```bash
+git add -A
+git commit -m "besked om ændringen"
+git push
+```
+
+Netlify bygger og deployer automatisk, hver gang du pusher til `main` — ingen manuelle deploy-kommandoer nødvendige fremover.
+
+### Alternativ (uden GitHub)
+
+Hvis du på et tidspunkt hellere vil deploye direkte fra terminalen uden GitHub (som "Serier & film" gør), virker det stadig fint:
+
+```bash
+npm install -g netlify-cli   # første gang
+netlify login
 netlify deploy --prod --dir public
 ```
 

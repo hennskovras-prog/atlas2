@@ -1,6 +1,8 @@
 # Atlas 2
 
-Personligt digitalt kulturbibliotek. MVP: bøger. Efterfølger til Atlas 1 (Streamlit/Turso), bygget efter samme grundarkitektur som streaming-tracker-appen "Serier & film": browser → Supabase/PostgREST → Postgres, ingen applikationsserver.
+Personligt digitalt kulturbibliotek. Bøger, Jumbo-bøger og Plader (Discogs-sync) har UI. Efterfølger til Atlas 1 (Streamlit/Turso), bygget efter samme grundarkitektur som streaming-tracker-appen "Serier & film": browser → Supabase/PostgREST → Postgres, ingen applikationsserver.
+
+Deployes via GitHub + Netlify (kontinuerlig deploy) — se `docs/RUNNING.md` §7 for opsætning første gang.
 
 - **Opsætning og kørsel:** `docs/RUNNING.md`
 - **Arkitektur, RLS-model og risici:** `docs/ARCHITECTURE.md`
