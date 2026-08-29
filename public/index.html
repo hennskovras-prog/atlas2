@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atlas — dit personlige kulturbibliotek</title>
+<style>
+  /* ============ Designsystem: CSS custom properties, som streaming-appen ============ */
+  :root{
+    --bg: #FAF7F2;
+    --bg-elevated: #FFFFFF;
+    --text: #2E2620;
+    --text-muted: #7A6F63;
+    --accent: #B0603F;
+    --accent-hover: #94502F;
+    --border: #E8DFD3;
+    --card-shadow: 0 1px 3px rgba(60, 45, 30, 0.08), 0 1px 2px rgba(60, 45, 30, 0.06);
+    --card-shadow-hover: 0 8px 24px rgba(60, 45, 30, 0.14);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --badge-warn-bg: #F5E3D0;
+    --badge-warn-text: #8A5A20;
+    --badge-ok-bg: #DEEBE2;
+    --badge-ok-text: #2E6B48;
+    --danger: #B23A3A;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1,h2,h3{ font-family: Georgia, "Times New Roman", serif; font-weight: 600; margin: 0; }
+  button, input, select, textarea{ font-family: inherit; font-size: 1rem; }
+  button{ cursor:pointer; touch-action: manipulation; }
+
+  /* ---- Header / navigation ---- */
+  header.top{
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(250, 247, 242, 0.92);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px 0 20px;
+  }
+  .top-row{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom: 12px; }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand h1{ font-size: 1.6rem; color: var(--accent); }
+  .brand .tagline{ color: var(--text-muted); font-size: 0.85rem; }
+  .auth-control{ display:flex; align-items:center; gap:8px; font-size: 0.85rem; color: var(--text-muted); }
+
+  nav.tabs{
+    display:flex; gap: 4px; overflow-x:auto; padding-bottom: 0;
+    scrollbar-width: none;
+  }
+  nav.tabs::-webkit-scrollbar{ display:none; }
+  nav.tabs button{
+    background: none; border: none; border-bottom: 3px solid transparent;
+    padding: 10px 14px; color: var(--text-muted); font-weight: 600; white-space: nowrap;
+  }
+  nav.tabs button.active{ color: var(--accent); border-bottom-color: var(--accent); }
+  nav.tabs button:disabled{ color: #C9BFB2; cursor: default; }
+  nav.tabs .soon{ font-size: 0.7em; font-weight: 400; }
+
+  /* ---- Toolbar ---- */
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap: 10px; align-items:center;
+    padding: 14px 20px; max-width: 1280px; margin: 0 auto;
+  }
+  .toolbar input[type="search"]{
+    flex: 1 1 220px; padding: 10px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: var(--bg-elevated);
+  }
+  .toolbar select{
+    padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+    background: var(--bg-elevated); color: var(--text);
+  }
+  .toolbar label.checkbox{ display:flex; align-items:center; gap:6px; font-size:0.9rem; color: var(--text-muted); white-space:nowrap; }
+  .btn{
+    padding: 10px 16px; border-radius: var(--radius-sm); border: 1px solid transparent;
+    background: var(--accent); color: #fff; font-weight: 600;
+  }
+  .btn:hover{ background: var(--accent-hover); }
+  .btn.secondary{ background: var(--bg-elevated); color: var(--text); border-color: var(--border); }
+  .btn.secondary:hover{ background: #F2EBE0; }
+  .btn.danger{ background: var(--danger); }
+  .btn:disabled{ opacity: 0.5; cursor: default; }
+
+  main{ max-width: 1280px; margin: 0 auto; padding: 0 20px 60px 20px; }
+  .count-line{ color: var(--text-muted); font-size: 0.9rem; margin: 4px 0 16px 0; }
+
+  /* ---- Grid & cards ---- */
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 18px;
+  }
+  .card{
+    background: var(--bg-elevated); border-radius: var(--radius);
+    box-shadow: var(--card-shadow); overflow:hidden; cursor:pointer;
+    display:flex; flex-direction:column; transition: box-shadow 0.15s ease, transform 0.15s ease;
+    position: relative;
+  }
+  .card:hover{ box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+  .card .cover-wrap{
+    width:100%; aspect-ratio: 2 / 3; background: #EFE7DA;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+  }
+  .card .cover-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .card .cover-fallback{ font-size: 2.6rem; }
+  .card .cover-initial{
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-family: Georgia, serif; font-size: 2rem; font-weight:700;
+  }
+  .card .body{ padding: 10px 12px 12px 12px; display:flex; flex-direction:column; gap: 2px; flex:1; }
+  .card .title{ font-weight:700; font-size: 0.95rem; line-height:1.25; }
+  .card .author{ color: var(--text-muted); font-size: 0.82rem; }
+  .card .meta-row{ display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .badge{ font-size: 0.7rem; padding: 2px 7px; border-radius: 999px; font-weight:600; }
+  .badge.warn{ background: var(--badge-warn-bg); color: var(--badge-warn-text); }
+  .badge.ok{ background: var(--badge-ok-bg); color: var(--badge-ok-text); }
+  .card .quick-verify{ margin-left:auto; display:flex; align-items:center; gap:4px; font-size:0.72rem; color:var(--text-muted); }
+  .card .quick-verify input{ margin:0; }
+
+  .empty-state{ text-align:center; padding: 60px 20px; color: var(--text-muted); }
+  .empty-state .icon{ font-size: 3rem; margin-bottom: 10px; }
+
+  .pagination{ display:flex; justify-content:center; gap:8px; margin-top: 28px; }
+  .pagination button{ padding:8px 14px; border-radius: var(--radius-sm); border:1px solid var(--border); background:var(--bg-elevated); }
+  .pagination button.active{ background: var(--accent); color:#fff; border-color: var(--accent); }
+
+  /* ---- Modal / dialog (delt mønster: opret/redigér/detalje) ---- */
+  .modal-backdrop{
+    position:fixed; inset:0; background: rgba(40, 30, 20, 0.45);
+    display:flex; align-items:flex-end; justify-content:center; z-index: 100;
+    opacity:0; pointer-events:none; transition: opacity 0.15s ease;
+  }
+  .modal-backdrop.open{ opacity:1; pointer-events:auto; }
+  .modal{
+    background: var(--bg-elevated); width:100%; max-width: 640px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    max-height: 92vh; overflow-y:auto; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)) 20px;
+    transform: translateY(12px); transition: transform 0.15s ease;
+  }
+  .modal-backdrop.open .modal{ transform: translateY(0); }
+  @media (min-width: 640px){
+    .modal-backdrop{ align-items:center; }
+    .modal{ border-radius: var(--radius); }
+  }
+  .modal-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom: 14px; }
+  .modal-header h2{ font-size: 1.25rem; }
+  .modal-close{ background:none; border:none; font-size:1.3rem; color: var(--text-muted); padding:4px 8px; }
+
+  .field{ margin-bottom: 12px; }
+  .field label{ display:block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px; font-weight:600; }
+  .field input[type="text"], .field input[type="number"], .field select, .field textarea{
+    width:100%; padding: 9px 12px; border-radius: var(--radius-sm); border:1px solid var(--border);
+    background: var(--bg); color: var(--text);
+  }
+  .field textarea{ min-height: 70px; resize: vertical; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; }
+  .toggle-more{ background:none; border:none; color: var(--accent); font-weight:600; padding: 6px 0; font-size:0.88rem; }
+  .more-fields{ display:none; border-top: 1px dashed var(--border); padding-top: 12px; margin-top: 4px; }
+  .more-fields.open{ display:block; }
+  .checkbox-row{ display:flex; align-items:center; gap:8px; margin-bottom: 10px; }
+  .checkbox-row label{ font-size:0.9rem; }
+
+  .ol-results{ display:flex; flex-direction:column; gap:6px; max-height: 220px; overflow-y:auto; margin-top:8px; }
+  .ol-result{ display:flex; gap:10px; align-items:center; padding:6px; border-radius: var(--radius-sm); border:1px solid var(--border); background:var(--bg); }
+  .ol-result img{ width:34px; height:50px; object-fit:cover; border-radius:4px; background:#EFE7DA; }
+  .ol-result .info{ flex:1; font-size:0.85rem; }
+  .ol-result button{ padding:6px 10px; font-size:0.8rem; }
+
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top: 16px; }
+  .modal-actions .spacer{ flex:1; }
+
+  .detail-cover{ width: 160px; aspect-ratio:2/3; border-radius: var(--radius-sm); overflow:hidden; float:left; margin: 0 16px 10px 0; background:#EFE7DA; }
+  .detail-cover img{ width:100%; height:100%; object-fit:cover; }
+  .detail-meta{ color: var(--text-muted); font-size:0.9rem; margin: 2px 0; }
+  .detail-notes{ margin-top: 10px; white-space: pre-wrap; }
+  .clearfix::after{ content:""; display:block; clear:both; }
+
+  .toast{
+    position:fixed; bottom: 20px; left:50%; transform: translateX(-50%);
+    background: #2E2620; color:#fff; padding: 10px 18px; border-radius: 999px;
+    font-size: 0.88rem; opacity:0; pointer-events:none; transition: opacity 0.2s ease; z-index: 200;
+  }
+  .toast.show{ opacity:1; }
+
+  .soon-panel{ text-align:center; padding: 80px 20px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-row">
+    <div class="brand">
+      <h1>Atlas</h1>
+      <span class="tagline">dit personlige kulturbibliotek</span>
+    </div>
+    <div class="auth-control" id="auth-control"></div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="boeger">Bøger</button>
+    <button class="tab-btn" data-tab="jumbo">Jumbo-bøger</button>
+    <button class="tab-btn" data-tab="plader">Plader</button>
+    <button class="tab-btn" disabled>Film <span class="soon">snart</span></button>
+    <button class="tab-btn" disabled>Rejser <span class="soon">snart</span></button>
+  </nav>
+</header>
+
+<main>
+  <div id="view-boeger">
+    <div class="toolbar">
+      <input type="search" id="search-input" placeholder="Søg på titel, forfatter eller note…">
+      <select id="sort-select">
+        <option value="added_desc">Senest tilføjet</option>
+        <option value="title_asc">Titel A-Å</option>
+        <option value="author_asc">Forfatter A-Å</option>
+        <option value="year_desc">Udgivelsesår (nyeste)</option>
+        <option value="year_asc">Udgivelsesår (ældste)</option>
+        <option value="review_first">Til gennemgang først</option>
+        <option value="unverified_first">Ikke tjekket først</option>
+      </select>
+      <label class="checkbox">
+        <input type="checkbox" id="only-unverified"> Kun ikke-tjekkede
+      </label>
+      <button class="btn" id="add-book-btn">+ Tilføj bog</button>
+    </div>
+    <div class="count-line" id="count-line"></div>
+    <div class="grid" id="book-grid"></div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <div id="view-jumbo" style="display:none;">
+    <div class="toolbar">
+      <span style="flex:1 1 auto; color:var(--text-muted); font-size:0.9rem;">Sorteret efter nummer.</span>
+      <button class="btn" id="add-jumbo-btn">+ Tilføj Jumbo-bog</button>
+    </div>
+    <div class="count-line" id="jumbo-count-line"></div>
+    <div class="grid" id="jumbo-grid"></div>
+  </div>
+
+  <div id="view-plader" style="display:none;">
+    <div class="toolbar">
+      <span style="flex:1 1 auto; color:var(--text-muted); font-size:0.9rem;">Sorteret efter kunstner, dernæst titel. Covers kommer fra Discogs.</span>
+      <button class="btn" id="sync-discogs-btn">Synkronisér fra Discogs</button>
+    </div>
+    <div class="count-line" id="records-count-line"></div>
+    <div class="grid" id="records-grid"></div>
+  </div>
+</main>
+
+<!-- Delt modal: detalje / enlarge -->
+<div class="modal-backdrop" id="detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Bogdetaljer</h2>
+      <button class="modal-close" data-close="detail-backdrop">✕</button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+<!-- Delt modal: opret / redigér -->
+<div class="modal-backdrop" id="form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="form-title">Tilføj bog</h2>
+      <button class="modal-close" data-close="form-backdrop">✕</button>
+    </div>
+    <form id="book-form">
+      <input type="hidden" id="f-id">
+      <div class="field">
+        <label for="f-title">Titel *</label>
+        <input type="text" id="f-title" required autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="f-author">Forfatter</label>
+        <input type="text" id="f-author" autocomplete="off">
+      </div>
+
+      <div class="field" id="ol-search-field">
+        <label>Søg på Open Library (autofylder titel, forfatter, år og cover)</label>
+        <input type="text" id="ol-query" placeholder="Skriv titel og tryk søg…" autocomplete="off">
+        <button type="button" class="btn secondary" id="ol-search-btn" style="margin-top:6px;">Søg på Open Library</button>
+        <div class="ol-results" id="ol-results"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="f-year">Udgivelsesår</label>
+          <input type="number" id="f-year">
+        </div>
+        <div class="field">
+          <label for="f-cover-file">Eller upload eget cover</label>
+          <input type="file" id="f-cover-file" accept="image/*">
+        </div>
+      </div>
+
+      <button type="button" class="toggle-more" id="toggle-more-fields">+ Flere felter</button>
+      <div class="more-fields" id="more-fields">
+        <div class="field">
+          <label for="f-isbn">ISBN</label>
+          <input type="text" id="f-isbn">
+        </div>
+        <div class="field">
+          <label for="f-source">Kilde / note om herkomst</label>
+          <input type="text" id="f-source" placeholder='fx "andet (boghandel, brugt bog)"'>
+        </div>
+        <div class="field">
+          <label for="f-rating">Vurdering</label>
+          <select id="f-rating">
+            <option value="">Ingen</option>
+            <option value="😐">😐</option>
+            <option value="🙂">🙂</option>
+            <option value="😍">😍</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-notes">Personlige noter</label>
+          <textarea id="f-notes"></textarea>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="f-needs-review">
+          <label for="f-needs-review">Til gennemgang (usikker identifikation)</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="f-verified">
+          <label for="f-verified">Tjekket mod den fysiske bog</label>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="form-delete-btn" style="display:none;">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="form-backdrop">Annullér</button>
+        <button type="submit" class="btn" id="form-save-btn">Gem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Jumbo-bøger: delt modal opret/redigér -->
+<div class="modal-backdrop" id="jumbo-form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="jumbo-form-title">Tilføj Jumbo-bog</h2>
+      <button class="modal-close" data-close="jumbo-form-backdrop">✕</button>
+    </div>
+    <form id="jumbo-form">
+      <input type="hidden" id="jf-id">
+      <div class="field">
+        <label for="jf-title">Titel *</label>
+        <input type="text" id="jf-title" required autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="jf-number">Nummer *</label>
+        <input type="number" id="jf-number" required>
+      </div>
+      <div class="field">
+        <label for="jf-cover-file">Cover (valgfrit)</label>
+        <input type="file" id="jf-cover-file" accept="image/*">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="jumbo-form-delete-btn" style="display:none;">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="jumbo-form-backdrop">Annullér</button>
+        <button type="submit" class="btn" id="jumbo-form-save-btn">Gem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Plader: redigér-modal (ingen "opret" — plader tilføjes kun via Discogs-sync) -->
+<div class="modal-backdrop" id="record-form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Redigér plade</h2>
+      <button class="modal-close" data-close="record-form-backdrop">✕</button>
+    </div>
+    <form id="record-form">
+      <input type="hidden" id="rf-id">
+      <div class="field">
+        <label for="rf-title">Titel *</label>
+        <input type="text" id="rf-title" required autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="rf-artist">Kunstner</label>
+        <input type="text" id="rf-artist" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="rf-year">År</label>
+        <input type="number" id="rf-year">
+      </div>
+      <p style="color:var(--text-muted); font-size:0.82rem; margin-top:-4px;">Cover kommer fra Discogs og kan ikke redigeres her.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="record-form-delete-btn">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="record-form-backdrop">Annullér</button>
+        <button type="submit" class="btn">Gem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Login-modal (Supabase Auth: email + password) -->
+<div class="modal-backdrop" id="login-backdrop">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <h2>Log ind</h2>
+      <button class="modal-close" data-close="login-backdrop">✕</button>
+    </div>
+    <div class="field">
+      <label for="login-email">E-mail</label>
+      <input type="email" id="login-email" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="login-password">Kodeord</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <div id="login-error" style="color:var(--danger); font-size:0.85rem; display:none; margin-bottom:8px;"></div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="login-submit-btn">Log ind</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ============================================================================
+// Atlas 2 — frontend. Én selvstændig fil, intet framework, intet build-step.
+// Arkitektur: browser → Supabase/PostgREST → Postgres, nøjagtig samme mønster
+// som streaming-tracker-appen (se STREAMING_APP_ARCHITECTURE.md). Ingen egen
+// applikationsserver — al data-adgang går direkte herfra til Supabase.
+// ============================================================================
+
+// ---- KONFIGURATION: udfyld disse to, når dit Supabase-projekt er oprettet ----
+// Begge er beregnet til at stå i klientkode (ligesom streaming-appens egen
+// SUPABASE_URL/SUPABASE_KEY) — "anon"-nøglen er IKKE hemmelig, den er
+// begrænset af Row Level Security (se migrations/001_init.sql).
+const SUPABASE_URL = 'https://ccasocoyuzwhnrxmupze.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjYXNvY295dXp3aG5yeG11cHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMDk0MjksImV4cCI6MjEwMzU4NTQyOX0.m5M9zMd5tFImozmhIM3rozH20IEqlzbeFlGpNjoD2_U';
+
+// Valgfri: URL til Edge Function-fallback for Open Library, hvis direkte
+// browser-fetch bliver CORS-blokeret (se supabase/functions/openlibrary-proxy).
+// Lad stå tom for udelukkende at forsøge direkte fetch.
+const OPENLIBRARY_PROXY_URL = SUPABASE_URL.includes('DIT-PROJEKT')
+  ? ''
+  : `${SUPABASE_URL}/functions/v1/openlibrary-proxy`;
+
+// Discogs-sync: samme idé, men her ER hemmeligheden reel (Discogs' personlige
+// token, i modsætning til Supabase's anon-nøgle) — den bor derfor KUN i Edge
+// Function'en (Supabase secret DISCOGS_TOKEN), aldrig i denne fil.
+const DISCOGS_SYNC_URL = SUPABASE_URL.includes('DIT-PROJEKT')
+  ? ''
+  : `${SUPABASE_URL}/functions/v1/discogs-sync`;
+
+const REST_URL = `${SUPABASE_URL}/rest/v1`;
+const AUTH_URL = `${SUPABASE_URL}/auth/v1`;
+const SESSION_STORAGE_KEY = 'atlas2_session';
+
+const PAGE_SIZE = 20; // samme sidestørrelse som Atlas 1
+
+let books = [];          // index-shape, UDEN cover_data (se pgrest.listIndex)
+const coverCache = {};   // id -> data-uri | null, hentet on-demand pr. synlig side
+let currentPage = 1;
+let searchQuery = '';
+let sortKey = 'added_desc';
+let onlyUnverified = false;
+let session = null;      // { access_token, refresh_token, expires_at, user } | null
+
+// ============================================================================
+// Supabase Auth — rå fetch mod GoTrue's REST-endpoints, ingen SDK
+// (samme "ingen npm-pakker i browseren"-princip som streaming-appen).
+// ============================================================================
+
+function loadSessionFromStorage() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function saveSessionToStorage(s) {
+  try {
+    if (s) localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s));
+    else localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (e) { /* privat browsing e.l. — sessionen lever så kun i hukommelsen */ }
+}
+
+async function authFetch(path, body) {
+  const res = await fetch(`${AUTH_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || data.msg || data.error || `Login fejlede (${res.status})`);
+  return data;
+}
+
+async function login(email, password) {
+  const data = await authFetch('/token?grant_type=password', { email, password });
+  session = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_at: Date.now() + (data.expires_in || 3600) * 1000,
+    user: data.user,
+  };
+  saveSessionToStorage(session);
+  renderAuthControl();
+}
+
+async function logout() {
+  if (session) {
+    try {
+      await fetch(`${AUTH_URL}/logout`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + session.access_token },
+      });
+    } catch (e) { /* uanset serverfejl logger vi lokalt ud */ }
+  }
+  session = null;
+  saveSessionToStorage(null);
+  renderAuthControl();
+}
+
+/** Genopfrisker access_token via refresh_token, hvis den er ved at udløbe. */
+async function ensureFreshSession() {
+  if (!session) return;
+  if (Date.now() < session.expires_at - 30000) return; // stadig gyldig i mindst 30s
+  try {
+    const data = await authFetch('/token?grant_type=refresh_token', { refresh_token: session.refresh_token });
+    session = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: Date.now() + (data.expires_in || 3600) * 1000,
+      user: data.user,
+    };
+    saveSessionToStorage(session);
+  } catch (e) {
+    // refresh-token udløbet/ugyldig — log stille ud, brugeren kan logge ind igen
+    session = null;
+    saveSessionToStorage(null);
+  }
+}
+
+function isAuthenticated() { return !!session; }
+
+function requireAuthOrPrompt() {
+  if (isAuthenticated()) return true;
+  openModal('login-backdrop');
+  return false;
+}
+
+function renderAuthControl() {
+  const el = document.getElementById('auth-control');
+  el.innerHTML = isAuthenticated()
+    ? `<span>${escapeHtml(session.user && session.user.email || 'Logget ind')}</span><button class="btn secondary" id="logout-btn" style="padding:6px 10px;">Log ud</button>`
+    : `<button class="btn secondary" id="login-btn" style="padding:6px 10px;">Log ind for at redigere</button>`;
+  const loginBtn = document.getElementById('login-btn');
+  if (loginBtn) loginBtn.addEventListener('click', () => openModal('login-backdrop'));
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => { await logout(); showToast('Logget ud.'); });
+}
+
+document.getElementById('login-submit-btn').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  errorEl.style.display = 'none';
+  try {
+    await login(email, password);
+    document.getElementById('login-password').value = '';
+    closeModal('login-backdrop');
+    showToast('Logget ind.');
+    render(); // handlingsknapper (redigér/slet) kan nu vises anderledes
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = '';
+  }
+});
+
+// ============================================================================
+// PostgREST — direkte fetch mod Supabase's auto-genererede REST-API.
+// Samme opbygning som streaming-appens apiRaw()/api()-par.
+// ============================================================================
+
+async function pgrest(method, path, { body, singular = false, headers: extraHeaders } = {}) {
+  await ensureFreshSession();
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: 'Bearer ' + (session ? session.access_token : SUPABASE_ANON_KEY),
+  };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (method === 'POST' || method === 'PATCH') headers['Prefer'] = 'return=representation';
+  if (singular) headers['Accept'] = 'application/vnd.pgrst.object+json';
+  // Kaldere kan overstyre/udvide headers (fx Prefer: resolution=merge-duplicates
+  // ved upsert) — bruges pt. kun af recordsApi.upsertFromDiscogs.
+  Object.assign(headers, extraHeaders);
+
+  const res = await fetch(`${REST_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const msg = (data && (data.message || data.hint || data.error_description)) || `Fejl ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+const qs = (params) => Object.entries(params).map(([k, v]) => `${k}=${v}`).join('&');
+
+// Felter til listevisning — BEVIDST uden cover_data (se ARCHITECTURE.md:
+// samme to-vejs-læsning som Atlas 1's get_books_index()/get_book_covers()).
+const BOOK_INDEX_SELECT = 'id,title,author,year,isbn,cover_id,openlibrary_key,source,needs_review,verified,notes,rating,created_at,updated_at';
+
+const booksApi = {
+  listIndex: () => pgrest('GET', '/books?' + qs({ select: BOOK_INDEX_SELECT, order: 'id.desc' })),
+  covers: (ids) => pgrest('GET', '/books?' + qs({ select: 'id,cover_data', id: `in.(${ids.join(',')})` })),
+  get: (id) => pgrest('GET', '/books?' + qs({ select: '*', id: `eq.${id}` }), { singular: true }),
+  create: (fields) => pgrest('POST', '/books', { body: fields, singular: true }),
+  // Ægte partial update: PostgREST's PATCH sætter KUN de kolonner, der er i
+  // body — cover_data (eller ethvert andet udeladt felt) rører den aldrig.
+  // Verificeret direkte mod Postgres' RLS/UPDATE-motor under udvikling.
+  update: (id, fields) => pgrest('PATCH', '/books?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  remove: (id) => pgrest('DELETE', '/books?' + qs({ id: `eq.${id}` })),
+};
+
+// ============================================================================
+// Open Library — forsøg ALTID direkte browser-fetch først (som streaming-
+// appen gør med OMDb). Falder kun tilbage til Edge Function-proxyen, hvis
+// direkte fetch reelt fejler (typisk et CORS-afvist netværkskald, som i
+// browseren viser sig som en generisk TypeError fra fetch()).
+// ============================================================================
+
+function normalizeOlResults(docs) {
+  return (docs || []).slice(0, 10).map((doc) => ({
+    title: doc.title || '',
+    author: (doc.author_name && doc.author_name[0]) || '',
+    year: doc.first_publish_year || null,
+    isbn: (doc.isbn && doc.isbn[0]) || null,
+    cover_id: doc.cover_i || null,
+    openlibrary_key: doc.key || null,
+    cover_url: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : null,
+  }));
+}
+
+function blobToDataUri(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Kunne ikke læse billedet.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+const openLibraryApi = {
+  async search(q) {
+    try {
+      const res = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=10`);
+      if (!res.ok) throw new Error('Open Library svarede ' + res.status);
+      const data = await res.json();
+      return normalizeOlResults(data.docs);
+    } catch (directErr) {
+      if (!OPENLIBRARY_PROXY_URL) {
+        throw new Error('Kunne ikke søge på Open Library direkte (' + directErr.message + '). '
+          + 'Sæt OPENLIBRARY_PROXY_URL / deploy Edge Function\'en, se docs/RUNNING.md.');
+      }
+      const res = await fetch(`${OPENLIBRARY_PROXY_URL}?action=search&q=${encodeURIComponent(q)}`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+      });
+      if (!res.ok) throw new Error('Open Library-proxy (Edge Function) fejlede: ' + res.status);
+      return normalizeOlResults(await res.json());
+    }
+  },
+
+  /** Henter et cover og re-koder det som base64 data-URI (self-hosting,
+   *  samme begrundelse som Atlas 1's download_cover_image). Returnerer
+   *  null (ikke en fejl) hvis det ikke lykkes — et manglende cover må
+   *  aldrig forhindre resten af bogen i at blive gemt. */
+  async coverAsDataUri(url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      return await blobToDataUri(blob);
+    } catch (directErr) {
+      if (!OPENLIBRARY_PROXY_URL) return null;
+      try {
+        const res = await fetch(OPENLIBRARY_PROXY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+          body: JSON.stringify({ action: 'cover', url }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data.data_uri || null;
+      } catch (e) {
+        return null;
+      }
+    }
+  },
+};
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function hashColor(str) {
+  let hash = 0;
+  for (let i = 0; i < (str || '').length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 42%, 42%)`;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('[data-close]').forEach((el) => {
+  el.addEventListener('click', () => closeModal(el.dataset.close));
+});
+document.querySelectorAll('.modal-backdrop').forEach((el) => {
+  el.addEventListener('click', (e) => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ============================================================================
+// Data loading
+// ============================================================================
+
+async function loadBooks() {
+  books = await booksApi.listIndex();
+  currentPage = 1;
+  render();
+}
+
+async function ensureCoversLoaded(ids) {
+  const missing = ids.filter((id) => !(id in coverCache));
+  if (!missing.length) return false;
+  const rows = await booksApi.covers(missing);
+  const byId = {};
+  for (const r of rows) byId[r.id] = r.cover_data;
+  for (const id of missing) coverCache[id] = byId[id] ?? null;
+  return true;
+}
+
+// ============================================================================
+// Filter / sort / paginate — ren array-manipulation på allerede hentet data
+// ============================================================================
+
+function matches(book, query) {
+  if (!query) return true;
+  const haystack = [book.title, book.author, book.notes, book.source, book.isbn]
+    .filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(query.toLowerCase());
+}
+
+const SORTERS = {
+  added_desc: (a, b) => b.id - a.id,
+  title_asc: (a, b) => (a.title || '').localeCompare(b.title || '', 'da'),
+  author_asc: (a, b) => (a.author || '').localeCompare(b.author || '', 'da'),
+  year_desc: (a, b) => (b.year || 0) - (a.year || 0),
+  year_asc: (a, b) => (a.year || 9999) - (b.year || 9999),
+  review_first: (a, b) => (b.needs_review === true) - (a.needs_review === true),
+  unverified_first: (a, b) => (a.verified === true) - (b.verified === true),
+};
+
+function getFilteredSorted() {
+  let list = books.filter((b) => matches(b, searchQuery));
+  if (onlyUnverified) list = list.filter((b) => !b.verified);
+  list = [...list].sort(SORTERS[sortKey] || SORTERS.added_desc);
+  return list;
+}
+
+// ============================================================================
+// Rendering
+// ============================================================================
+
+function bookCardHTML(book) {
+  const cover = coverCache[book.id];
+  const coverHtml = cover
+    ? `<img src="${cover}" alt="Cover: ${escapeHtml(book.title)}" loading="lazy">`
+    : (cover === null
+        ? `<div class="cover-initial" style="background:${hashColor(book.title)}">${escapeHtml((book.title || '?').slice(0,1).toUpperCase())}</div>`
+        : `<div class="cover-fallback">📕</div>`);
+
+  const badges = [];
+  if (book.needs_review) badges.push('<span class="badge warn">Til gennemgang</span>');
+  if (book.rating) badges.push(`<span class="badge ok">${book.rating}</span>`);
+
+  return `
+    <div class="card" data-id="${book.id}" data-action="open-detail">
+      <div class="cover-wrap">${coverHtml}</div>
+      <div class="body">
+        <div class="title">${escapeHtml(book.title)}</div>
+        <div class="author">${escapeHtml(book.author) || '—'}${book.year ? ' · ' + book.year : ''}</div>
+        <div class="meta-row">
+          ${badges.join('')}
+          <label class="quick-verify" data-stop-propagation="1">
+            <input type="checkbox" data-action="quick-verify" data-id="${book.id}" ${book.verified ? 'checked' : ''}>
+            Tjekket
+          </label>
+        </div>
+      </div>
+    </div>`;
+}
+
+function render() {
+  const filtered = getFilteredSorted();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  currentPage = Math.min(currentPage, totalPages);
+  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  const countLine = document.getElementById('count-line');
+  countLine.textContent = books.length === 0
+    ? ''
+    : `${filtered.length} af ${books.length} bøger`;
+
+  const grid = document.getElementById('book-grid');
+  if (books.length === 0) {
+    grid.innerHTML = '';
+    document.getElementById('pagination').innerHTML = '';
+    showEmptyState('empty');
+    return;
+  }
+  if (filtered.length === 0) {
+    grid.innerHTML = '';
+    document.getElementById('pagination').innerHTML = '';
+    showEmptyState(searchQuery || onlyUnverified ? 'no-match' : 'empty');
+    return;
+  }
+  hideEmptyState();
+
+  grid.innerHTML = pageItems.map(bookCardHTML).join('');
+  renderPagination(totalPages);
+
+  ensureCoversLoaded(pageItems.map((b) => b.id)).then((changed) => {
+    if (changed) grid.innerHTML = pageItems.map(bookCardHTML).join('');
+  });
+}
+
+function showEmptyState(kind) {
+  const grid = document.getElementById('book-grid');
+  const messages = {
+    empty: { icon: '📚', text: 'Der er endnu ikke tilføjet nogen bøger. Tryk "+ Tilføj bog" for at komme i gang.' },
+    'no-match': { icon: '🔍', text: 'Ingen bøger matcher din søgning/filter.' },
+  };
+  const m = messages[kind] || messages.empty;
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">${m.icon}</div><div>${m.text}</div></div>`;
+}
+function hideEmptyState() {}
+
+function renderPagination(totalPages) {
+  const el = document.getElementById('pagination');
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  let html = '';
+  for (let p = 1; p <= totalPages; p++) {
+    html += `<button class="${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', () => { currentPage = Number(btn.dataset.page); render(); window.scrollTo({top:0, behavior:'smooth'}); });
+  });
+}
+
+// ---- Event delegation på grid'et ----
+document.getElementById('book-grid').addEventListener('click', (e) => {
+  const quick = e.target.closest('[data-action="quick-verify"]');
+  if (quick) {
+    e.stopPropagation();
+    toggleVerified(Number(quick.dataset.id), quick.checked);
+    return;
+  }
+  const card = e.target.closest('[data-action="open-detail"]');
+  if (card) openDetail(Number(card.dataset.id));
+});
+
+async function toggleVerified(id, verified) {
+  try {
+    await booksApi.update(id, { verified });
+    const b = books.find((x) => x.id === id);
+    if (b) b.verified = verified;
+    render();
+  } catch (err) {
+    showToast(err.message);
+    render();
+  }
+}
+
+// ============================================================================
+// Detalje-modal
+// ============================================================================
+
+async function openDetail(id) {
+  const book = await booksApi.get(id);
+  const coverHtml = book.cover_data
+    ? `<img src="${book.cover_data}" alt="">`
+    : `<div class="cover-initial" style="background:${hashColor(book.title)}; height:100%;">${escapeHtml((book.title||'?').slice(0,1).toUpperCase())}</div>`;
+
+  document.getElementById('detail-body').innerHTML = `
+    <div class="clearfix">
+      <div class="detail-cover">${coverHtml}</div>
+      <h2 style="margin-bottom:4px;">${escapeHtml(book.title)}</h2>
+      <div class="detail-meta">${escapeHtml(book.author) || '—'}${book.year ? ' · ' + book.year : ''}</div>
+      ${book.isbn ? `<div class="detail-meta">ISBN: ${escapeHtml(book.isbn)}</div>` : ''}
+      ${book.source ? `<div class="detail-meta">Kilde: ${escapeHtml(book.source)}</div>` : ''}
+      <div class="detail-meta">
+        ${book.needs_review ? '<span class="badge warn">Til gennemgang</span> ' : ''}
+        ${book.verified ? '<span class="badge ok">Tjekket</span>' : '<span class="badge warn">Ikke tjekket</span>'}
+        ${book.rating ? ' ' + book.rating : ''}
+      </div>
+      ${book.notes ? `<div class="detail-notes">${escapeHtml(book.notes)}</div>` : ''}
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn secondary" data-close="detail-backdrop">Luk</button>
+      <button class="btn" id="detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('detail-edit-btn').addEventListener('click', () => {
+    closeModal('detail-backdrop');
+    openForm(book);
+  });
+  document.getElementById('detail-delete-btn').addEventListener('click', () => {
+    closeModal('detail-backdrop');
+    confirmAndDelete(book.id, book.title);
+  });
+  openModal('detail-backdrop');
+}
+
+async function confirmAndDelete(id, title) {
+  if (!requireAuthOrPrompt()) return;
+  if (!confirm(`Slet "${title}"? Dette kan ikke fortrydes.`)) return;
+  try {
+    await booksApi.remove(id);
+    books = books.filter((b) => b.id !== id);
+    delete coverCache[id];
+    render();
+    showToast('Bog slettet.');
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+// ============================================================================
+// Opret / redigér-modal (delt, styret af skjult f-id)
+// ============================================================================
+
+let pendingCoverDataUri = undefined; // undefined = ikke ændret, null = fjernet, string = ny
+
+function resetForm() {
+  document.getElementById('book-form').reset();
+  document.getElementById('f-id').value = '';
+  document.getElementById('ol-results').innerHTML = '';
+  document.getElementById('ol-query').value = '';
+  document.getElementById('more-fields').classList.remove('open');
+  document.getElementById('toggle-more-fields').textContent = '+ Flere felter';
+  document.getElementById('form-delete-btn').style.display = 'none';
+  pendingCoverDataUri = undefined;
+}
+
+function openForm(book) {
+  if (!requireAuthOrPrompt()) return;
+  resetForm();
+  if (book) {
+    document.getElementById('form-title').textContent = 'Redigér bog';
+    document.getElementById('f-id').value = book.id;
+    document.getElementById('f-title').value = book.title || '';
+    document.getElementById('f-author').value = book.author || '';
+    document.getElementById('f-year').value = book.year || '';
+    document.getElementById('f-isbn').value = book.isbn || '';
+    document.getElementById('f-source').value = book.source || '';
+    document.getElementById('f-rating').value = book.rating || '';
+    document.getElementById('f-notes').value = book.notes || '';
+    document.getElementById('f-needs-review').checked = !!book.needs_review;
+    document.getElementById('f-verified').checked = !!book.verified;
+    document.getElementById('form-delete-btn').style.display = '';
+    document.getElementById('ol-search-field').style.display = 'none'; // ved redigering: undgå ved en fejl at overskrive et allerede sat cover
+  } else {
+    document.getElementById('form-title').textContent = 'Tilføj bog';
+    document.getElementById('ol-search-field').style.display = '';
+  }
+  openModal('form-backdrop');
+  document.getElementById('f-title').focus();
+}
+
+document.getElementById('add-book-btn').addEventListener('click', () => openForm(null));
+
+document.getElementById('toggle-more-fields').addEventListener('click', () => {
+  const el = document.getElementById('more-fields');
+  el.classList.toggle('open');
+  document.getElementById('toggle-more-fields').textContent = el.classList.contains('open') ? '− Færre felter' : '+ Flere felter';
+});
+
+document.getElementById('f-cover-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { pendingCoverDataUri = reader.result; showToast('Cover klar til at blive gemt.'); };
+  reader.readAsDataURL(file);
+});
+
+let olQueuedFields = {}; // ekstra felter valgt fra et Open Library-resultat, sendes ved gem
+document.getElementById('ol-search-btn').addEventListener('click', doOpenLibrarySearch);
+document.getElementById('ol-query').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); doOpenLibrarySearch(); }
+});
+
+async function doOpenLibrarySearch() {
+  const q = document.getElementById('ol-query').value.trim() || document.getElementById('f-title').value.trim();
+  if (!q) return;
+  const resultsEl = document.getElementById('ol-results');
+  resultsEl.innerHTML = '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Søger…</div>';
+  try {
+    const results = await openLibraryApi.search(q);
+    if (!results.length) {
+      resultsEl.innerHTML = '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Ingen resultater — udfyld manuelt i stedet.</div>';
+      return;
+    }
+    resultsEl.innerHTML = results.map((r, i) => `
+      <div class="ol-result">
+        <img src="${r.cover_url || ''}" onerror="this.style.visibility='hidden'">
+        <div class="info">${escapeHtml(r.title)}${r.author ? ' — ' + escapeHtml(r.author) : ''}${r.year ? ' (' + r.year + ')' : ''}</div>
+        <button type="button" data-pick="${i}">Vælg</button>
+      </div>`).join('');
+    resultsEl.querySelectorAll('[data-pick]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const r = results[Number(btn.dataset.pick)];
+        document.getElementById('f-title').value = r.title || '';
+        document.getElementById('f-author').value = r.author || '';
+        document.getElementById('f-year').value = r.year || '';
+        document.getElementById('f-isbn').value = r.isbn || '';
+        olQueuedFields.cover_id = r.cover_id;
+        olQueuedFields.openlibrary_key = r.openlibrary_key;
+        if (r.cover_url) {
+          btn.textContent = 'Henter cover…';
+          try {
+            const dataUri = await openLibraryApi.coverAsDataUri(r.cover_url);
+            if (dataUri) pendingCoverDataUri = dataUri;
+          } catch (e) { /* ikke kritisk — bogen kan stadig gemmes uden cover */ }
+        }
+        showToast('Felter udfyldt fra Open Library.');
+      });
+    });
+  } catch (err) {
+    resultsEl.innerHTML = `<div style="padding:6px; color:var(--danger); font-size:0.85rem;">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+document.getElementById('book-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('f-id').value;
+  const payload = {
+    title: document.getElementById('f-title').value.trim(),
+    author: document.getElementById('f-author').value.trim(),
+    year: document.getElementById('f-year').value ? Number(document.getElementById('f-year').value) : null,
+    isbn: document.getElementById('f-isbn').value.trim() || null,
+    source: document.getElementById('f-source').value.trim() || null,
+    rating: document.getElementById('f-rating').value || null,
+    notes: document.getElementById('f-notes').value.trim() || null,
+    needs_review: document.getElementById('f-needs-review').checked,
+    verified: document.getElementById('f-verified').checked,
+    ...olQueuedFields,
+  };
+  // cover_data sendes KUN hvis den faktisk er ændret i denne session — dette
+  // er den bevidste rettelse af Atlas 1's kendte "cover bliver nulstillet"-fejl.
+  if (pendingCoverDataUri !== undefined) payload.cover_data = pendingCoverDataUri;
+
+  try {
+    if (id) {
+      const updated = await booksApi.update(id, payload);
+      const idx = books.findIndex((b) => b.id === updated.id);
+      if (idx !== -1) books[idx] = updated;
+      delete coverCache[updated.id]; // tving genindlæsning af cover hvis den blev ændret
+      showToast('Bog opdateret.');
+    } else {
+      const created = await booksApi.create(payload);
+      books.unshift(created);
+      showToast('Bog tilføjet.');
+    }
+    olQueuedFields = {};
+    closeModal('form-backdrop');
+    render();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('form-delete-btn').addEventListener('click', () => {
+  const id = Number(document.getElementById('f-id').value);
+  const title = document.getElementById('f-title').value;
+  closeModal('form-backdrop');
+  confirmAndDelete(id, title);
+});
+
+// ============================================================================
+// Jumbo-bøger — anden samling, samme mønstre som bøger men uden det, der ikke
+// er nødvendigt for kun 16 rækker: ingen to-vejs cover-indlæsning, ingen
+// søgning/sortering-i-UI (fast sorteret efter nummer, som i Atlas 1), ingen
+// paginering. Redigering sker direkte fra kortet (moderniseret ift. Atlas 1's
+// dropdown-admin-panel — se ATLAS_1_HANDOVER.md).
+// ============================================================================
+
+const jumboApi = {
+  list: () => pgrest('GET', '/jumbo_books?' + qs({ select: '*', order: 'number.asc' })),
+  create: (fields) => pgrest('POST', '/jumbo_books', { body: fields, singular: true }),
+  update: (id, fields) => pgrest('PATCH', '/jumbo_books?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  remove: (id) => pgrest('DELETE', '/jumbo_books?' + qs({ id: `eq.${id}` })),
+};
+
+let jumboBooks = [];
+let jumboLoadedOnce = false;
+
+async function loadJumboBooks() {
+  try {
+    jumboBooks = await jumboApi.list();
+    jumboLoadedOnce = true;
+    renderJumbo();
+  } catch (err) {
+    document.getElementById('jumbo-grid').innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse Jumbo-bøger: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function jumboCardHTML(jb) {
+  const coverHtml = jb.cover_data
+    ? `<img src="${jb.cover_data}" alt="Cover: ${escapeHtml(jb.title)}" loading="lazy">`
+    : `<div class="cover-fallback">📙</div>`;
+  return `
+    <div class="card" data-id="${jb.id}" data-action="open-jumbo-edit">
+      <div class="cover-wrap">${coverHtml}</div>
+      <div class="body">
+        <div class="title">${escapeHtml(jb.title)}</div>
+        <div class="author">Jumbo-bog nr. ${jb.number}</div>
+      </div>
+    </div>`;
+}
+
+function renderJumbo() {
+  const countLine = document.getElementById('jumbo-count-line');
+  const grid = document.getElementById('jumbo-grid');
+  countLine.textContent = jumboBooks.length ? `${jumboBooks.length} Jumbo-bøger` : '';
+  if (jumboBooks.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">📙</div><div>Der er endnu ikke tilføjet nogen Jumbo-bøger. Tryk "+ Tilføj Jumbo-bog" for at komme i gang.</div></div>`;
+    return;
+  }
+  grid.innerHTML = jumboBooks.map(jumboCardHTML).join('');
+}
+
+document.getElementById('jumbo-grid').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-action="open-jumbo-edit"]');
+  if (card) openJumboForm(jumboBooks.find((jb) => jb.id === Number(card.dataset.id)));
+});
+
+let pendingJumboCoverDataUri = undefined;
+
+function resetJumboForm() {
+  document.getElementById('jumbo-form').reset();
+  document.getElementById('jf-id').value = '';
+  document.getElementById('jumbo-form-delete-btn').style.display = 'none';
+  pendingJumboCoverDataUri = undefined;
+}
+
+function openJumboForm(jb) {
+  if (!requireAuthOrPrompt()) return;
+  resetJumboForm();
+  if (jb) {
+    document.getElementById('jumbo-form-title').textContent = 'Redigér Jumbo-bog';
+    document.getElementById('jf-id').value = jb.id;
+    document.getElementById('jf-title').value = jb.title || '';
+    document.getElementById('jf-number').value = jb.number;
+    document.getElementById('jumbo-form-delete-btn').style.display = '';
+  } else {
+    document.getElementById('jumbo-form-title').textContent = 'Tilføj Jumbo-bog';
+  }
+  openModal('jumbo-form-backdrop');
+  document.getElementById('jf-title').focus();
+}
+
+document.getElementById('add-jumbo-btn').addEventListener('click', () => openJumboForm(null));
+
+document.getElementById('jf-cover-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { pendingJumboCoverDataUri = reader.result; showToast('Cover klar til at blive gemt.'); };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('jumbo-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('jf-id').value;
+  const payload = {
+    title: document.getElementById('jf-title').value.trim(),
+    number: Number(document.getElementById('jf-number').value),
+  };
+  // Samme bevidste regel som for bøger: cover_data sendes KUN hvis ændret.
+  if (pendingJumboCoverDataUri !== undefined) payload.cover_data = pendingJumboCoverDataUri;
+
+  try {
+    if (id) {
+      const updated = await jumboApi.update(id, payload);
+      const idx = jumboBooks.findIndex((jb) => jb.id === updated.id);
+      if (idx !== -1) jumboBooks[idx] = updated;
+      showToast('Jumbo-bog opdateret.');
+    } else {
+      const created = await jumboApi.create(payload);
+      jumboBooks.push(created);
+      showToast('Jumbo-bog tilføjet.');
+    }
+    jumboBooks.sort((a, b) => a.number - b.number);
+    closeModal('jumbo-form-backdrop');
+    renderJumbo();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('jumbo-form-delete-btn').addEventListener('click', async () => {
+  const id = Number(document.getElementById('jf-id').value);
+  const title = document.getElementById('jf-title').value;
+  if (!confirm(`Slet "${title}"? Dette kan ikke fortrydes.`)) return;
+  try {
+    await jumboApi.remove(id);
+    jumboBooks = jumboBooks.filter((jb) => jb.id !== id);
+    closeModal('jumbo-form-backdrop');
+    renderJumbo();
+    showToast('Jumbo-bog slettet.');
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// ============================================================================
+// Plader — tilføjes KUN via Discogs-sync (matcher Atlas 1: ingen manuel
+// "opret plade"). Redigering af titel/kunstner/år og sletning direkte fra
+// kortet; cover kan ikke redigeres (kommer udelukkende fra Discogs).
+// ============================================================================
+
+const recordsApi = {
+  list: () => pgrest('GET', '/records?' + qs({ select: '*', order: 'artist.asc,title.asc' })),
+  update: (id, fields) => pgrest('PATCH', '/records?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  remove: (id) => pgrest('DELETE', '/records?' + qs({ id: `eq.${id}` })),
+  // Ægte upsert via PostgREST's on_conflict — udnytter discogs_release_id's
+  // UNIQUE-constraint, i modsætning til Atlas 1's manuelle "SELECT findes den"-
+  // tjek (se ATLAS_1_HANDOVER.md §12). Idempotent: opdaterer eksisterende,
+  // tilføjer nye, rører intet andet.
+  upsertFromDiscogs: (rows) => pgrest('POST', '/records?' + qs({ on_conflict: 'discogs_release_id' }), {
+    body: rows,
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+  }),
+};
+
+let records = [];
+let recordsLoadedOnce = false;
+
+async function loadRecords() {
+  try {
+    records = await recordsApi.list();
+    recordsLoadedOnce = true;
+    renderRecords();
+  } catch (err) {
+    document.getElementById('records-grid').innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse plader: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function recordCardHTML(rec) {
+  const coverHtml = rec.cover_url
+    ? `<img src="${escapeHtml(rec.cover_url)}" alt="Cover: ${escapeHtml(rec.title)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=&quot;cover-fallback&quot;>💿</div>'">`
+    : `<div class="cover-fallback">💿</div>`;
+  return `
+    <div class="card" data-id="${rec.id}" data-action="open-record-edit">
+      <div class="cover-wrap">${coverHtml}</div>
+      <div class="body">
+        <div class="title">${escapeHtml(rec.title)}</div>
+        <div class="author">${escapeHtml(rec.artist) || '—'}${rec.year ? ' · ' + rec.year : ''}</div>
+      </div>
+    </div>`;
+}
+
+function renderRecords() {
+  const countLine = document.getElementById('records-count-line');
+  const grid = document.getElementById('records-grid');
+  countLine.textContent = records.length ? `${records.length} plader` : '';
+  if (records.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">💿</div><div>Der er endnu ikke synkroniseret nogen plader. Log ind og tryk "Synkronisér fra Discogs".</div></div>`;
+    return;
+  }
+  grid.innerHTML = records.map(recordCardHTML).join('');
+}
+
+document.getElementById('records-grid').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-action="open-record-edit"]');
+  if (card) openRecordForm(records.find((r) => r.id === Number(card.dataset.id)));
+});
+
+function openRecordForm(rec) {
+  if (!requireAuthOrPrompt()) return;
+  document.getElementById('rf-id').value = rec.id;
+  document.getElementById('rf-title').value = rec.title || '';
+  document.getElementById('rf-artist').value = rec.artist || '';
+  document.getElementById('rf-year').value = rec.year || '';
+  openModal('record-form-backdrop');
+  document.getElementById('rf-title').focus();
+}
+
+document.getElementById('record-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('rf-id').value;
+  const payload = {
+    title: document.getElementById('rf-title').value.trim(),
+    artist: document.getElementById('rf-artist').value.trim() || null,
+    year: document.getElementById('rf-year').value ? Number(document.getElementById('rf-year').value) : null,
+  };
+  try {
+    const updated = await recordsApi.update(id, payload);
+    const idx = records.findIndex((r) => r.id === updated.id);
+    if (idx !== -1) records[idx] = updated;
+    records.sort((a, b) => (a.artist || '').localeCompare(b.artist || '', 'da') || (a.title || '').localeCompare(b.title || '', 'da'));
+    closeModal('record-form-backdrop');
+    renderRecords();
+    showToast('Plade opdateret.');
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('record-form-delete-btn').addEventListener('click', async () => {
+  const id = Number(document.getElementById('rf-id').value);
+  const title = document.getElementById('rf-title').value;
+  if (!confirm(`Slet "${title}"? Dette kan ikke fortrydes. (Den kommer tilbage ved næste Discogs-sync, hvis den stadig er i din samling der.)`)) return;
+  try {
+    await recordsApi.remove(id);
+    records = records.filter((r) => r.id !== id);
+    closeModal('record-form-backdrop');
+    renderRecords();
+    showToast('Plade slettet.');
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('sync-discogs-btn').addEventListener('click', async () => {
+  if (!requireAuthOrPrompt()) return;
+  if (!DISCOGS_SYNC_URL) { showToast('Discogs-sync er ikke sat op endnu (mangler Edge Function).'); return; }
+  const btn = document.getElementById('sync-discogs-btn');
+  btn.disabled = true;
+  btn.textContent = 'Synkroniserer…';
+  try {
+    await ensureFreshSession();
+    const res = await fetch(DISCOGS_SYNC_URL, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + (session ? session.access_token : SUPABASE_ANON_KEY) },
+    });
+    const fetched = await res.json();
+    if (!res.ok) throw new Error((fetched && fetched.error) || `Discogs-sync fejlede (${res.status})`);
+
+    const existingIds = new Set(records.map((r) => r.discogs_release_id));
+    const newCount = fetched.filter((r) => !existingIds.has(r.discogs_release_id)).length;
+    const updatedCount = fetched.length - newCount;
+
+    await recordsApi.upsertFromDiscogs(fetched);
+    await loadRecords();
+    showToast(`Discogs-sync færdig: ${newCount} nye, ${updatedCount} opdaterede.`);
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Synkronisér fra Discogs';
+  }
+});
+
+// ============================================================================
+// Faneblade
+// ============================================================================
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('view-boeger').style.display = tab === 'boeger' ? '' : 'none';
+  document.getElementById('view-jumbo').style.display = tab === 'jumbo' ? '' : 'none';
+  document.getElementById('view-plader').style.display = tab === 'plader' ? '' : 'none';
+  if (tab === 'jumbo' && !jumboLoadedOnce) loadJumboBooks();
+  if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
+}
+document.querySelectorAll('.tab-btn[data-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+// ============================================================================
+// Toolbar-bindinger
+// ============================================================================
+
+let searchDebounce;
+document.getElementById('search-input').addEventListener('input', (e) => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => { searchQuery = e.target.value; currentPage = 1; render(); }, 150);
+});
+document.getElementById('sort-select').addEventListener('change', (e) => { sortKey = e.target.value; render(); });
+document.getElementById('only-unverified').addEventListener('change', (e) => { onlyUnverified = e.target.checked; currentPage = 1; render(); });
+
+// ============================================================================
+// Init
+// ============================================================================
+
+(async function init() {
+  if (SUPABASE_URL.includes('DIT-PROJEKT')) {
+    document.getElementById('book-grid').innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Atlas 2 er ikke sat op endnu — udfyld SUPABASE_URL og SUPABASE_ANON_KEY øverst i &lt;script&gt;-blokken (se docs/RUNNING.md).</div>`;
+    return;
+  }
+  session = loadSessionFromStorage();
+  renderAuthControl();
+  try {
+    await loadBooks();
+  } catch (err) {
+    document.getElementById('book-grid').innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse Atlas: ${escapeHtml(err.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

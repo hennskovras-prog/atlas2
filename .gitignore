@@ -1,0 +1,9 @@
+# Atlas 2 er en statisk app uden build-step — der er ikke meget at ignorere.
+data/atlas1_export.json
+*.log
+
+# Kun relevant hvis legacy-node-sqlite/ genbruges lokalt til noget:
+legacy-node-sqlite/atlas2.db
+legacy-node-sqlite/atlas2.db-shm
+legacy-node-sqlite/atlas2.db-wal
+node_modules/

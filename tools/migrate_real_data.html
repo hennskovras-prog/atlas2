@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas 2 — Engangsværktøj: importér rigtige Atlas 1-data</title>
+<style>
+  :root { --bg:#faf8f5; --ink:#2a2622; --muted:#8a8078; --line:#e5ddd3; --accent:#8b5e3c; --danger:#b3432b; --ok:#3f7a4f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); padding: 2rem; line-height:1.5; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .sub { color: var(--muted); margin-bottom: 1.5rem; }
+  .warn { background:#fdf1ec; border:1px solid #f0c9b8; color:#7a3520; padding:1rem 1.25rem; border-radius:10px; margin-bottom:1.5rem; font-size:0.95rem; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:1.5rem; margin-bottom:1.25rem; }
+  .card h2 { font-size:1rem; margin:0 0 0.75rem; }
+  label { display:block; font-size:0.85rem; color:var(--muted); margin-bottom:0.3rem; }
+  input[type=email], input[type=password] { width:100%; padding:0.6rem 0.75rem; border:1px solid var(--line); border-radius:8px; font-size:0.95rem; margin-bottom:0.75rem; }
+  input[type=file] { display:block; margin-bottom:0.75rem; font-size:0.9rem; }
+  button { background:var(--accent); color:#fff; border:none; padding:0.65rem 1.25rem; border-radius:8px; font-size:0.95rem; cursor:pointer; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  button.danger { background:var(--danger); }
+  .status-line { font-size:0.85rem; margin-top:0.5rem; }
+  .ok { color: var(--ok); }
+  .err { color: var(--danger); }
+  #log { background:#1e1c1a; color:#e8e2d8; font-family: ui-monospace, monospace; font-size:0.82rem; padding:1rem; border-radius:10px; height:280px; overflow-y:auto; white-space:pre-wrap; }
+  .file-status { font-size:0.85rem; margin-bottom:0.5rem; }
+  .filelist { list-style:none; padding:0; margin:0 0 0.75rem; font-size:0.85rem; }
+  .filelist li { padding:0.15rem 0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>Atlas 2 — importér rigtige Atlas 1-data</h1>
+  <p class="sub">Engangsværktøj. Ikke en del af selve Atlas 2-appen — brug det én gang, luk det derefter.</p>
+
+  <div class="warn">
+    <strong>Dette sletter den nuværende testdata</strong> i books, jumbo_books, comic_years, records og trips i dit Supabase-projekt og erstatter den med dine rigtige data fra de 5 JSON-filer, du eksporterede fra Turso. Kør kun dette værktøj, når du er klar til det.
+  </div>
+
+  <div class="card">
+    <h2>1. Log ind</h2>
+    <label for="email">E-mail</label>
+    <input id="email" type="email" autocomplete="username">
+    <label for="password">Kodeord</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="login-btn">Log ind</button>
+    <div id="login-status" class="status-line"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Vælg de 5 eksportfiler</h2>
+    <p class="sub" style="margin:0 0 0.75rem;">Find dem i <code>atlas1_export</code>-mappen, du gemte tidligere (fx i Downloads). Vælg alle 5 filer på én gang.</p>
+    <input id="file-input" type="file" accept=".json" multiple>
+    <ul id="file-list" class="filelist"></ul>
+  </div>
+
+  <div class="card">
+    <h2>3. Importér</h2>
+    <button id="import-btn" class="danger" disabled>Ryd testdata og importér rigtige data</button>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://ccasocoyuzwhnrxmupze.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjYXNvY295dXp3aG5yeG11cHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMDk0MjksImV4cCI6MjEwMzU4NTQyOX0.m5M9zMd5tFImozmhIM3rozH20IEqlzbeFlGpNjoD2_U';
+  const REST_URL = `${SUPABASE_URL}/rest/v1`;
+  const AUTH_URL = `${SUPABASE_URL}/auth/v1`;
+
+  // Tabeller i den rækkefølge, de importeres, og de kolonner der reelt findes
+  // i Postgres-skemaet (migrations/001_init.sql) — matcher 1:1 Turso-eksporten.
+  const TABLE_COLUMNS = {
+    books: ['id','title','author','year','isbn','cover_id','openlibrary_key','cover_data','source','needs_review','verified','notes','rating'],
+    jumbo_books: ['id','title','number','cover_data'],
+    comic_years: ['id','year','cover_data'],
+    records: ['id','title','artist','year','discogs_release_id','cover_url'],
+    trips: ['id','destination','city','country','start_date','end_date','duration_days','companions','notes','confidence','cover_data'],
+  };
+  const BOOLEAN_COLUMNS = { books: ['needs_review', 'verified'] };
+
+  let accessToken = null;
+  let selectedFiles = {}; // table -> File
+
+  const logEl = document.getElementById('log');
+  function log(msg, cls) {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = msg;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  document.getElementById('login-btn').addEventListener('click', async () => {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const statusEl = document.getElementById('login-status');
+    statusEl.textContent = 'Logger ind...';
+    statusEl.className = 'status-line';
+    try {
+      const res = await fetch(`${AUTH_URL}/token?grant_type=password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error_description || data.error || 'Login fejlede');
+      accessToken = data.access_token;
+      statusEl.textContent = `Logget ind som ${data.user.email}`;
+      statusEl.className = 'status-line ok';
+      updateImportButton();
+    } catch (err) {
+      statusEl.textContent = 'Fejl: ' + err.message;
+      statusEl.className = 'status-line err';
+    }
+  });
+
+  document.getElementById('file-input').addEventListener('change', (e) => {
+    selectedFiles = {};
+    const listEl = document.getElementById('file-list');
+    listEl.innerHTML = '';
+    for (const file of e.target.files) {
+      const table = file.name.replace(/\.json$/i, '');
+      if (TABLE_COLUMNS[table]) selectedFiles[table] = file;
+    }
+    for (const table of Object.keys(TABLE_COLUMNS)) {
+      const li = document.createElement('li');
+      li.textContent = selectedFiles[table] ? `✓ ${table}.json valgt` : `✗ ${table}.json mangler`;
+      li.style.color = selectedFiles[table] ? '#3f7a4f' : '#b3432b';
+      listEl.appendChild(li);
+    }
+    updateImportButton();
+  });
+
+  function updateImportButton() {
+    const allFilesPresent = Object.keys(TABLE_COLUMNS).every((t) => selectedFiles[t]);
+    document.getElementById('import-btn').disabled = !(accessToken && allFilesPresent);
+  }
+
+  function readFileAsJson(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => { try { resolve(JSON.parse(reader.result)); } catch (e) { reject(e); } };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+  }
+
+  async function pgFetch(path, opts) {
+    const res = await fetch(`${REST_URL}${path}`, {
+      ...opts,
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+        ...(opts && opts.headers),
+      },
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); } catch (e) {}
+      throw new Error(`${res.status} ${res.statusText} ${detail}`);
+    }
+    return res;
+  }
+
+  async function deleteAll(table) {
+    await pgFetch(`/${table}?id=gte.0`, { method: 'DELETE' });
+  }
+
+  function coerceRow(table, row) {
+    const cols = TABLE_COLUMNS[table];
+    const boolCols = BOOLEAN_COLUMNS[table] || [];
+    const out = {};
+    for (const c of cols) {
+      if (!(c in row)) continue;
+      out[c] = boolCols.includes(c) ? !!row[c] : row[c];
+    }
+    return out;
+  }
+
+  // Sender rækker i bidder, holdt under en byte-grænse (cover_data kan være store),
+  // så hvert enkelt kald forbliver en fornuftig størrelse.
+  const MAX_BATCH_BYTES = 4_000_000;
+
+  async function insertBatched(table, rows) {
+    let batch = [];
+    let batchBytes = 0;
+    let sent = 0;
+    for (const row of rows) {
+      const coerced = coerceRow(table, row);
+      const size = JSON.stringify(coerced).length;
+      if (batch.length && batchBytes + size > MAX_BATCH_BYTES) {
+        await pgFetch(`/${table}`, { method: 'POST', body: JSON.stringify(batch) });
+        sent += batch.length;
+        log(`  ${table}: ${sent}/${rows.length} rækker importeret...`);
+        batch = [];
+        batchBytes = 0;
+      }
+      batch.push(coerced);
+      batchBytes += size;
+    }
+    if (batch.length) {
+      await pgFetch(`/${table}`, { method: 'POST', body: JSON.stringify(batch) });
+      sent += batch.length;
+    }
+    return sent;
+  }
+
+  async function countRows(table) {
+    const res = await fetch(`${REST_URL}/${table}?select=id`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}`, Prefer: 'count=exact' },
+    });
+    const range = res.headers.get('content-range'); // "0-N/total"
+    if (range && range.includes('/')) return parseInt(range.split('/')[1], 10);
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows.length : 0;
+  }
+
+  document.getElementById('import-btn').addEventListener('click', async () => {
+    document.getElementById('import-btn').disabled = true;
+    logEl.innerHTML = '';
+    log('Starter import...');
+    const order = ['books', 'jumbo_books', 'comic_years', 'records', 'trips'];
+    const expected = {};
+    try {
+      for (const table of order) {
+        log(`\n== ${table} ==`);
+        const rows = await readFileAsJson(selectedFiles[table]);
+        expected[table] = rows.length;
+        log(`${table}: ${rows.length} rækker fundet i filen. Rydder eksisterende data...`);
+        await deleteAll(table);
+        log(`${table}: eksisterende data ryddet. Importerer...`);
+        const sent = await insertBatched(table, rows);
+        log(`${table}: ${sent} rækker sendt.`, 'ok');
+      }
+
+      log('\n== Verificerer ==');
+      let allMatch = true;
+      for (const table of order) {
+        const actual = await countRows(table);
+        const match = actual === expected[table];
+        allMatch = allMatch && match;
+        log(`${table}: ${actual} rækker i Supabase (forventet ${expected[table]}) ${match ? 'OK' : 'MISMATCH'}`, match ? 'ok' : 'err');
+      }
+
+      log('\n== Retter auto-increment-tællere ==');
+      await pgFetch('/rpc/reset_all_sequences', { method: 'POST', body: JSON.stringify({}) });
+      log('Tællerne er rettet — nye bøger/rækker du opretter i appen får nu id\'er efter de importerede, uden kollision.', 'ok');
+
+      log(allMatch ? '\nFærdig — alle tabeller matcher forventet antal rækker.' : '\nFærdig, men med uoverensstemmelser — se ovenfor.', allMatch ? 'ok' : 'err');
+    } catch (err) {
+      log('FEJL: ' + err.message, 'err');
+    } finally {
+      document.getElementById('import-btn').disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
