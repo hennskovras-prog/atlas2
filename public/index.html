@@ -136,9 +136,15 @@
   .empty-state{ text-align:center; padding: 60px 20px; color: var(--text-muted); }
   .empty-state .icon{ font-size: 3rem; margin-bottom: 10px; }
 
-  .pagination{ display:flex; justify-content:center; gap:8px; margin-top: 28px; }
+  /* Prev/Next + "Side X af Y" — IKKE én knap pr. side. Med 301 bøger bliver
+     det 50+ sider; én knap pr. side blev ved med at overflowe skærmbredden på
+     mobil (rækken blev centreret ud fra sin egen, langt bredere bredde, så
+     kun en tilfældig midterskive af sidetal var synlig, uden nogen måde at nå
+     side 1 eller den sidste side på — det Christian så og påpegede). */
+  .pagination{ display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px; margin-top: 28px; }
   .pagination button{ padding:8px 14px; border-radius: var(--radius-sm); border:1px solid var(--border); background:var(--bg-elevated); }
-  .pagination button.active{ background: var(--accent); color:#fff; border-color: var(--accent); }
+  .pagination button:disabled{ opacity:0.4; cursor:default; }
+  .pagination-label{ color: var(--text-muted); font-size:0.9rem; padding:0 6px; white-space:nowrap; }
 
   /* ---- Modal / dialog (delt mønster: opret/redigér/detalje) ----
      Positioneret via --app-vh (sat fra JS ud fra window.visualViewport), ikke
@@ -1105,14 +1111,20 @@ function hideEmptyState() {}
 function renderPagination(totalPages) {
   const el = document.getElementById('pagination');
   if (totalPages <= 1) { el.innerHTML = ''; return; }
-  let html = '';
-  for (let p = 1; p <= totalPages; p++) {
-    html += `<button class="${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
-  }
-  el.innerHTML = html;
-  el.querySelectorAll('button').forEach((btn) => {
-    btn.addEventListener('click', () => { currentPage = Number(btn.dataset.page); render(); window.scrollTo({top:0, behavior:'smooth'}); });
-  });
+  const atFirst = currentPage === 1;
+  const atLast = currentPage === totalPages;
+  el.innerHTML = `
+    <button data-go="first" ${atFirst ? 'disabled' : ''}>&laquo; Første</button>
+    <button data-go="prev" ${atFirst ? 'disabled' : ''}>&lsaquo; Forrige</button>
+    <span class="pagination-label">Side ${currentPage} af ${totalPages}</span>
+    <button data-go="next" ${atLast ? 'disabled' : ''}>Næste &rsaquo;</button>
+    <button data-go="last" ${atLast ? 'disabled' : ''}>Sidste &raquo;</button>
+  `;
+  const goTo = (p) => { currentPage = Math.min(Math.max(1, p), totalPages); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  el.querySelector('[data-go="first"]').addEventListener('click', () => goTo(1));
+  el.querySelector('[data-go="prev"]').addEventListener('click', () => goTo(currentPage - 1));
+  el.querySelector('[data-go="next"]').addEventListener('click', () => goTo(currentPage + 1));
+  el.querySelector('[data-go="last"]').addEventListener('click', () => goTo(totalPages));
 }
 
 // ---- Event delegation på grid'et ----
