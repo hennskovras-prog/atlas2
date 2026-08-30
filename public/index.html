@@ -192,6 +192,17 @@
   .ol-result .info{ flex:1; font-size:0.85rem; }
   .ol-result button{ padding:6px 10px; font-size:0.8rem; }
 
+  /* ---- Stregkode-scanner ---- */
+  .barcode-viewport{ position:relative; width:100%; aspect-ratio: 3/4; background:#000; border-radius: var(--radius-sm); overflow:hidden; }
+  .barcode-viewport video{ width:100%; height:100%; object-fit:cover; }
+  .barcode-guide{
+    position:absolute; left:10%; right:10%; top:38%; height:24%;
+    border: 3px solid rgba(255,255,255,0.85); border-radius:8px;
+    box-shadow: 0 0 0 999px rgba(0,0,0,0.35);
+    pointer-events:none;
+  }
+  .barcode-status{ text-align:center; margin-top:10px; color: var(--text-muted); font-size:0.88rem; min-height: 1.3em; }
+
   .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top: 16px; }
   .modal-actions .spacer{ flex:1; }
 
@@ -315,7 +326,10 @@
       <div class="field" id="ol-search-field">
         <label>Søg efter bog (autofylder titel, forfatter, år og cover — prøver Open Library og Google Books)</label>
         <input type="text" id="ol-query" placeholder="Skriv titel og tryk søg…" autocomplete="off">
-        <button type="button" class="btn secondary" id="ol-search-btn" style="margin-top:6px;">Søg</button>
+        <div style="display:flex; gap:8px; margin-top:6px;">
+          <button type="button" class="btn secondary" id="ol-search-btn">Søg</button>
+          <button type="button" class="btn secondary" id="scan-barcode-btn">📷 Scan stregkode</button>
+        </div>
         <div class="ol-results" id="ol-results"></div>
       </div>
 
@@ -370,6 +384,25 @@
         <button type="submit" class="btn" id="form-save-btn">Gem</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Stregkode-scanner (ISBN via kameraet) -->
+<div class="modal-backdrop" id="barcode-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Scan stregkode</h2>
+      <button class="modal-close" data-close="barcode-backdrop">✕</button>
+    </div>
+    <div class="barcode-viewport">
+      <video id="barcode-video" autoplay playsinline muted></video>
+      <div class="barcode-guide"></div>
+    </div>
+    <div class="barcode-status" id="barcode-status"></div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn secondary" data-close="barcode-backdrop">Luk</button>
+    </div>
   </div>
 </div>
 
@@ -885,7 +918,12 @@ function showToast(msg) {
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  // Kameraet skal ALTID frigives, uanset hvordan scanner-modalen lukkes
+  // (Luk-knap, ✕, klik udenfor, eller fordi en stregkode blev fundet).
+  if (id === 'barcode-backdrop') stopBarcodeCamera();
+}
 
 // Se note ved .modal-backdrop i <style>: holder --app-vh i sync med den
 // faktisk synlige viewport (visualViewport), så modaler ikke havner delvist
@@ -906,7 +944,9 @@ document.querySelectorAll('[data-close]').forEach((el) => {
   el.addEventListener('click', () => closeModal(el.dataset.close));
 });
 document.querySelectorAll('.modal-backdrop').forEach((el) => {
-  el.addEventListener('click', (e) => { if (e.target === el) el.classList.remove('open'); });
+  // Kalder closeModal (ikke bare classList.remove) så oprydning pr. modal
+  // (fx frigivelse af kameraet for stregkode-scanneren) altid kører.
+  el.addEventListener('click', (e) => { if (e.target === el) closeModal(el.id); });
 });
 
 // ============================================================================
@@ -1243,6 +1283,76 @@ async function doOpenLibrarySearch() {
   } catch (err) {
     resultsEl.innerHTML = `<div style="padding:6px; color:var(--danger); font-size:0.85rem;">${escapeHtml(err.message)}</div>`;
   }
+}
+
+// ============================================================================
+// Stregkode-scanner — bruger den indbyggede BarcodeDetector (ingen ekstern
+// hemmelighed, ingen JS-bibliotek). Understøttet i Chrome/Samsung Internet på
+// Android, IKKE i Firefox eller Safari/iOS — se docs/ARCHITECTURE.md §13.
+// Genbruger den eksisterende Open Library/Google Books-søgning: en scannet
+// ISBN sendes bare ind som "isbn:<kode>", som begge API'er allerede forstår.
+// ============================================================================
+
+let barcodeStream = null;
+let barcodeDetector = null;
+let barcodeLoopId = null;
+
+function barcodeScanningSupported() {
+  return 'BarcodeDetector' in window;
+}
+
+if (!barcodeScanningSupported()) {
+  const btn = document.getElementById('scan-barcode-btn');
+  btn.title = 'Ikke understøttet i denne browser — prøv Chrome eller Samsung Internet på Android.';
+}
+
+document.getElementById('scan-barcode-btn').addEventListener('click', openBarcodeScanner);
+
+async function openBarcodeScanner() {
+  if (!barcodeScanningSupported()) {
+    showToast('Stregkode-scanning understøttes ikke i denne browser. Prøv Chrome eller Samsung Internet på Android, eller indtast/søg manuelt.');
+    return;
+  }
+  openModal('barcode-backdrop');
+  const statusEl = document.getElementById('barcode-status');
+  statusEl.textContent = 'Beder om kameraadgang…';
+  try {
+    barcodeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const video = document.getElementById('barcode-video');
+    video.srcObject = barcodeStream;
+    await video.play();
+    barcodeDetector = new BarcodeDetector({ formats: ['ean_13'] });
+    statusEl.textContent = 'Ret kameraet mod stregkoden bagpå bogen…';
+    scanBarcodeLoop(video);
+  } catch (err) {
+    statusEl.textContent = 'Kunne ikke få adgang til kameraet: ' + err.message;
+  }
+}
+
+async function scanBarcodeLoop(video) {
+  if (!barcodeStream) return; // scanneren blev lukket undervejs
+  try {
+    const codes = await barcodeDetector.detect(video);
+    // ISBN-13-stregkoder (Bookland EAN) starter altid med 978 eller 979.
+    const isbnCode = codes.find((c) => /^97[89]\d{10}$/.test(c.rawValue));
+    if (isbnCode) {
+      const isbn = isbnCode.rawValue;
+      closeModal('barcode-backdrop');
+      document.getElementById('ol-query').value = `isbn:${isbn}`;
+      showToast(`Stregkode fundet (${isbn}) — søger…`);
+      await doOpenLibrarySearch();
+      return;
+    }
+  } catch (e) {
+    // detect() kan fejle på enkelte frames (fx mens kameraet stadig fokuserer) — prøv bare igen.
+  }
+  barcodeLoopId = requestAnimationFrame(() => scanBarcodeLoop(video));
+}
+
+function stopBarcodeCamera() {
+  if (barcodeLoopId) { cancelAnimationFrame(barcodeLoopId); barcodeLoopId = null; }
+  if (barcodeStream) { barcodeStream.getTracks().forEach((t) => t.stop()); barcodeStream = null; }
+  barcodeDetector = null;
 }
 
 document.getElementById('book-form').addEventListener('submit', async (e) => {

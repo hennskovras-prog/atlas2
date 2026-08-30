@@ -185,11 +185,16 @@ Modaler (login, formularer, detaljer) blev tidligere positioneret med ren `vh`/`
 
 `public/icons/` + `site.webmanifest` + `favicon.ico` giver appen et rigtigt ikon (et "A"-monogram i appens farver) i browserfanen og når den føjes til hjemmeskærmen på mobil ("Føj til startskærm" i browserens menu). Ingen opsætning nødvendig ud over at have filerne med i deploy'et (de ligger i `public/`, så de følger automatisk med Netlify-deploy'et).
 
+### Stregkode-scanner (tilføjet)
+
+"📷 Scan stregkode"-knap i "+ Tilføj bog" åbner kameraet og læser ISBN-13-stregkoder automatisk via browserens indbyggede `BarcodeDetector` — ingen nyt API, ingen ny hemmelighed, genbruger den eksisterende Open Library/Google Books-søgning (send scannet ISBN som `isbn:<kode>`). **Kræver Chrome eller Samsung Internet på Android** (bekræftet understøttet) — virker IKKE i Firefox eller Safari/iOS; knappen viser en forklarende besked i stedet for at fejle, hvis browseren ikke understøtter det. Se ARCHITECTURE.md §13 for detaljer, inkl. hvorfor selve genkendelsen ikke kunne testes fra denne sandkasse (Linux-Chromium mangler den bagvedliggende platform-understøttelse, som Android har) — bekræft venligst selv på din Samsung, at det virker i praksis.
+
 For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåede `item_tags`/`favorites`-tabel i `migrations/SCHEMA_MAPPING.md`.
 
 ## 9. Kendte begrænsninger
 
 - Bøger, Jumbo-bøger, Anders And-årgange og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
+- Stregkode-scanning virker kun i Chrome/Samsung Internet på Android (browserbegrænsning, ikke noget vi kan rette) — se §8.
 - Open Library CORS er ikke bekræftet live (se §4/§6 i ARCHITECTURE.md) — test det først.
 - Bogsøgning bruger nu Open Library + Google Books (tilføjet som ekstra kilde for bedre dækning af nyere danske bøger) — se ARCHITECTURE.md §12. Der findes ikke et åbent dansk bibliotek-alternativ (DBC's services er forbeholdt biblioteker). Google Books-kaldet er ikke testet mod den rigtige API fra denne sandkasse — bekræft i praksis at det giver resultater ved søgning.
 - Discogs-synkronisering er ikke afprøvet mod den ægte Discogs-API og den ægte Edge Function-runtime (Deno) — kun logikken er enhedstestet, og hele flowet er testet ende-til-ende mod en lokal Postgres med et mock-svar. Følg testplanen i §8 første gang, du kører det for rigtigt.
