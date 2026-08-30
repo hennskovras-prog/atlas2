@@ -799,14 +799,21 @@ function blobToDataUri(blob) {
 // Google Books — supplerende kilde ved siden af Open Library (se
 // docs/ARCHITECTURE.md §12: der findes ikke en åben, nøglefri dansk
 // bibliotekstjeneste for covers — DBC's services er forbeholdt biblioteker).
-// Google Books har ofte bedre dækning af nyere/danske udgivelser. Bruges
-// UDEN API-nøgle (samme "prøv direkte, degrader roligt" som Open Library) —
-// fejler stille (tomt resultat, ikke en fejlbesked) hvis den mod forventning
-// kræver en nøgle eller blokeres af CORS i praksis; Open Library er stadig
-// hovedkilden og kræver ikke Google Books for at virke.
+// Google Books har ofte bedre dækning af nyere/danske udgivelser.
+//
+// KRÆVER en API-nøgle (se docs/ARCHITECTURE.md §16): uden nøgle svarer Google
+// Books-endpointet med HTTP 429 "quota_limit_value: 0" for ALLE nøglefri
+// kald, ikke bare lejlighedsvis — det er ikke en hemmelighed på samme måde
+// som TURSO/DISCOGS-tokens, det er en klientnøgle beregnet til at ligge i
+// offentlig frontend-kode (som Google Maps-nøgler). Sikret ved at være låst i
+// Google Cloud Console til KUN Books API og KUN referrer
+// https://hennskov.netlify.app/* — virker derfor ikke, hvis nogen kopierer
+// den til et andet site. Open Library er stadig hovedkilden og kræver ikke
+// Google Books for at virke, hvis nøglen nogensinde bliver ugyldig igen.
 // ============================================================================
 
 const GOOGLE_BOOKS_SEARCH_URL = 'https://www.googleapis.com/books/v1/volumes';
+const GOOGLE_BOOKS_API_KEY = 'AIzaSyCs7yHO-OyfURXn4kK332JFtAkJ54q411Q'; // begrænset til hennskov.netlify.app + kun Books API
 
 function normalizeGoogleResults(items) {
   return (items || []).slice(0, 10).map((item) => {
@@ -828,14 +835,36 @@ function normalizeGoogleResults(items) {
   });
 }
 
+// Sat, når et Google Books-kald fejler eller ikke bidrager med noget — bruges
+// til at vise en synlig, konkret grund i søgeresultat-panelet i stedet for at
+// det bare stille aldrig foreslår noget uden nogen forklaring (Christian
+// rapporterede at Google Books "aldrig" bidrager, uden at kunne se hvorfor).
+let googleBooksLastError = null;
+
 const googleBooksApi = {
   async search(q) {
+    googleBooksLastError = null;
     try {
-      const res = await fetch(`${GOOGLE_BOOKS_SEARCH_URL}?q=${encodeURIComponent(q)}&maxResults=10`);
-      if (!res.ok) return [];
+      const res = await fetch(`${GOOGLE_BOOKS_SEARCH_URL}?q=${encodeURIComponent(q)}&key=${GOOGLE_BOOKS_API_KEY}&maxResults=10`);
+      if (!res.ok) {
+        googleBooksLastError = res.status === 429
+          ? 'Google Books-kvoten er opbrugt lige nu (HTTP 429) — prøv igen senere.'
+          : `Google Books svarede HTTP ${res.status}`;
+        console.warn('[Google Books]', googleBooksLastError);
+        return [];
+      }
       const data = await res.json();
-      return normalizeGoogleResults(data.items);
+      const results = normalizeGoogleResults(data.items);
+      if (!data.items || !data.items.length) {
+        console.info('[Google Books] Intet resultat for "' + q + '" (0 træf, ikke en fejl).');
+      }
+      return results;
     } catch (e) {
+      // Fanger bl.a. netværksfejl og CORS-blokeringer, som browseren ikke giver
+      // en mere specifik grund til end "Failed to fetch" — men i det mindste er
+      // det nu synligt for Christian i UI'et, i stedet for stille at forsvinde.
+      googleBooksLastError = 'Kunne ikke kontakte Google Books (' + e.message + ') — muligvis blokeret af en annonce-/tracking-blokering i browseren.';
+      console.warn('[Google Books]', googleBooksLastError, e);
       return []; // ren tillægskilde — fejler den, søger vi bare videre uden den
     }
   },
@@ -1286,11 +1315,17 @@ async function doOpenLibrarySearch() {
       googleBooksApi.search(q),
     ]);
     const results = dedupeSearchResults([...olResults, ...googleResults]);
+    // Vis en konkret grund, hvis Google Books ikke bidrog pga. en fejl (ikke
+    // bare 0 reelle træf) — så det er synligt i selve appen, hvorfor den
+    // "aldrig" foreslår noget derfra, i stedet for at det bare sker stille.
+    const googleWarningHtml = googleBooksLastError
+      ? `<div style="padding:6px; color:var(--danger); font-size:0.8rem;">⚠️ ${escapeHtml(googleBooksLastError)}</div>`
+      : '';
     if (!results.length) {
-      resultsEl.innerHTML = '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Ingen resultater — udfyld manuelt i stedet.</div>';
+      resultsEl.innerHTML = googleWarningHtml + '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Ingen resultater — udfyld manuelt i stedet.</div>';
       return;
     }
-    resultsEl.innerHTML = results.map((r, i) => `
+    resultsEl.innerHTML = googleWarningHtml + results.map((r, i) => `
       <div class="ol-result">
         <img src="${r.cover_url || ''}" onerror="this.style.visibility='hidden'">
         <div class="info">${escapeHtml(r.title)}${r.author ? ' — ' + escapeHtml(r.author) : ''}${r.year ? ' (' + r.year + ')' : ''}
