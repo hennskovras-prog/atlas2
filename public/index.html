@@ -917,9 +917,36 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-function openModal(id) { document.getElementById(id).classList.add('open'); }
+// Låser baggrundssiden mod scroll, mens en modal er åben. Uden dette kan en
+// modal, der åbnes langt nede på en scrollet side (fx side 9 af bøgerne),
+// ende med at vise en del af baggrundssiden (herunder pagineringen) gennem
+// et "hul" i bunden af modal-overlayet på nogle mobilbrowsere (bl.a. set på
+// Samsung Internet) — en kendt uregelmæssighed omkring "position:fixed"
+// kombineret med scroll på mobil. At låse scrollet helt fjerner problemet
+// ved roden, uanset den præcise mobilbrowser-årsag.
+let bodyScrollLockY = 0;
+let bodyScrollLocked = false;
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  if (!bodyScrollLocked) {
+    bodyScrollLockY = window.scrollY;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${bodyScrollLockY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    bodyScrollLocked = true;
+  }
+}
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
+  if (bodyScrollLocked && !document.querySelector('.modal-backdrop.open')) {
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    window.scrollTo(0, bodyScrollLockY);
+    bodyScrollLocked = false;
+  }
   // Kameraet skal ALTID frigives, uanset hvordan scanner-modalen lukkes
   // (Luk-knap, ✕, klik udenfor, eller fordi en stregkode blev fundet).
   if (id === 'barcode-backdrop') stopBarcodeCamera();
@@ -1139,7 +1166,6 @@ async function openDetail(id) {
     <div class="modal-actions">
       <button class="btn danger" id="detail-delete-btn">Slet</button>
       <span class="spacer"></span>
-      <button class="btn secondary" data-close="detail-backdrop">Luk</button>
       <button class="btn" id="detail-edit-btn">Redigér</button>
     </div>
   `;
@@ -1201,7 +1227,7 @@ function openForm(book) {
     document.getElementById('f-needs-review').checked = !!book.needs_review;
     document.getElementById('f-verified').checked = !!book.verified;
     document.getElementById('form-delete-btn').style.display = '';
-    document.getElementById('ol-search-field').style.display = 'none'; // ved redigering: undgå ved en fejl at overskrive et allerede sat cover
+    document.getElementById('ol-search-field').style.display = ''; // søgning tilladt ved redigering også — Christian vil kunne genfinde/rette cover på eksisterende bøger
   } else {
     document.getElementById('form-title').textContent = 'Tilføj bog';
     document.getElementById('ol-search-field').style.display = '';
@@ -1296,6 +1322,7 @@ async function doOpenLibrarySearch() {
 let barcodeStream = null;
 let barcodeDetector = null;
 let barcodeLoopId = null;
+let barcodeLastSeen = null; // { isbn, count } — kræver samme kode i 2 træk i streg (se scanBarcodeLoop)
 
 function barcodeScanningSupported() {
   return 'BarcodeDetector' in window;
@@ -1314,6 +1341,7 @@ async function openBarcodeScanner() {
     return;
   }
   openModal('barcode-backdrop');
+  barcodeLastSeen = null;
   const statusEl = document.getElementById('barcode-status');
   statusEl.textContent = 'Beder om kameraadgang…';
   try {
@@ -1331,17 +1359,29 @@ async function openBarcodeScanner() {
 
 async function scanBarcodeLoop(video) {
   if (!barcodeStream) return; // scanneren blev lukket undervejs
+  const statusEl = document.getElementById('barcode-status');
   try {
     const codes = await barcodeDetector.detect(video);
     // ISBN-13-stregkoder (Bookland EAN) starter altid med 978 eller 979.
     const isbnCode = codes.find((c) => /^97[89]\d{10}$/.test(c.rawValue));
     if (isbnCode) {
       const isbn = isbnCode.rawValue;
-      closeModal('barcode-backdrop');
-      document.getElementById('ol-query').value = `isbn:${isbn}`;
-      showToast(`Stregkode fundet (${isbn}) — søger…`);
-      await doOpenLibrarySearch();
-      return;
+      // Kræv samme kode i 2 træk i streg, før den accepteres. Et enkelt
+      // fejlfortolket billede (bevægelsesuskarphed, dårlig vinkel) kunne
+      // ellers udløse en søgning på en forkert ISBN med det samme, så det
+      // så ud som om scanneren "gav op" uden at have fundet den rigtige kode.
+      if (barcodeLastSeen && barcodeLastSeen.isbn === isbn) {
+        closeModal('barcode-backdrop');
+        document.getElementById('ol-query').value = `isbn:${isbn}`;
+        showToast(`Stregkode fundet (${isbn}) — søger…`);
+        await doOpenLibrarySearch();
+        return;
+      }
+      barcodeLastSeen = { isbn };
+      statusEl.textContent = 'Kode fundet — hold kameraet stille et øjeblik…';
+    } else {
+      barcodeLastSeen = null;
+      statusEl.textContent = 'Ret kameraet mod stregkoden bagpå bogen…';
     }
   } catch (e) {
     // detect() kan fejle på enkelte frames (fx mens kameraet stadig fokuserer) — prøv bare igen.
@@ -1353,6 +1393,7 @@ function stopBarcodeCamera() {
   if (barcodeLoopId) { cancelAnimationFrame(barcodeLoopId); barcodeLoopId = null; }
   if (barcodeStream) { barcodeStream.getTracks().forEach((t) => t.stop()); barcodeStream = null; }
   barcodeDetector = null;
+  barcodeLastSeen = null;
 }
 
 document.getElementById('book-form').addEventListener('submit', async (e) => {
@@ -1473,7 +1514,6 @@ function openComicDetail(id) {
     <div class="modal-actions">
       <button class="btn danger" id="comic-detail-delete-btn">Slet</button>
       <span class="spacer"></span>
-      <button class="btn secondary" data-close="comic-detail-backdrop">Luk</button>
       <button class="btn" id="comic-detail-edit-btn">Redigér</button>
     </div>
   `;
@@ -1638,7 +1678,6 @@ function openJumboDetail(id) {
     <div class="modal-actions">
       <button class="btn danger" id="jumbo-detail-delete-btn">Slet</button>
       <span class="spacer"></span>
-      <button class="btn secondary" data-close="jumbo-detail-backdrop">Luk</button>
       <button class="btn" id="jumbo-detail-edit-btn">Redigér</button>
     </div>
   `;
@@ -1821,7 +1860,6 @@ function openRecordDetail(id) {
     <div class="modal-actions">
       <button class="btn danger" id="record-detail-delete-btn">Slet</button>
       <span class="spacer"></span>
-      <button class="btn secondary" data-close="record-detail-backdrop">Luk</button>
       <button class="btn" id="record-detail-edit-btn">Redigér</button>
     </div>
   `;
