@@ -1359,11 +1359,29 @@ async function doOpenLibrarySearch() {
         olQueuedFields.cover_id = r.cover_id;
         olQueuedFields.openlibrary_key = r.openlibrary_key;
         if (r.cover_url) {
+          // "Henter cover…" blev tidligere aldrig nulstillet igen, uanset om
+          // hentningen lykkedes eller ej — knappen så derfor ud til at hænge
+          // fast for evigt (det Christian oplevede som "driller med at hente
+          // et Google Books-cover ned"). coverAsDataUri() kaster aldrig en
+          // fejl (returnerer null i stedet, se dens egen kommentar), så
+          // try/catch her ramte reelt aldrig — det egentlige problem var
+          // manglende nulstilling af knapteksten i alle tilfælde.
           btn.textContent = 'Henter cover…';
-          try {
-            const dataUri = await openLibraryApi.coverAsDataUri(r.cover_url);
-            if (dataUri) pendingCoverDataUri = dataUri;
-          } catch (e) { /* ikke kritisk — bogen kan stadig gemmes uden cover */ }
+          btn.disabled = true;
+          const dataUri = await openLibraryApi.coverAsDataUri(r.cover_url);
+          btn.disabled = false;
+          if (dataUri) {
+            pendingCoverDataUri = dataUri;
+            btn.textContent = '✓ Cover hentet';
+          } else {
+            // Sker typisk for Google Books-covers: Googles cover-billeder
+            // tillader ikke browseren at læse billedbytes direkte (CORS), og
+            // uden en deployet Edge Function-proxy er der ikke noget
+            // fallback — bogens øvrige felter er stadig udfyldt korrekt.
+            btn.textContent = '✓ Valgt (intet cover)';
+            showToast(`Felter udfyldt fra ${r._source}, men coveret kunne ikke hentes automatisk — upload et manuelt, hvis du vil have et.`);
+            return;
+          }
         }
         showToast(`Felter udfyldt fra ${r._source}.`);
       });
