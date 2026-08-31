@@ -195,8 +195,8 @@ For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåed
 
 - Bøger, Jumbo-bøger, Anders And-årgange og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
 - Stregkode-scanning virker kun i Chrome/Samsung Internet på Android (browserbegrænsning, ikke noget vi kan rette) — se §8.
-- Open Library CORS er ikke bekræftet live (se §4/§6 i ARCHITECTURE.md) — test det først.
-- Bogsøgning bruger nu Open Library + Google Books (tilføjet som ekstra kilde for bedre dækning af nyere danske bøger) — se ARCHITECTURE.md §12. Der findes ikke et åbent dansk bibliotek-alternativ (DBC's services er forbeholdt biblioteker). Google Books-kaldet er ikke testet mod den rigtige API fra denne sandkasse — bekræft i praksis at det giver resultater ved søgning.
+- Open Library CORS: direkte browser-fetch virker fint i praksis, `openlibrary-proxy`-fallbacken er ikke nødvendig for selve Open Library-søgningen.
+- Bogsøgning bruger Open Library + Google Books (tilføjet som ekstra kilde for bedre dækning af nyere danske bøger) — se ARCHITECTURE.md §12/§16. Kræver en Google Books API-nøgle (se §16 — anonyme kald har 0 i daglig kvote); nøglen er sat op og bekræftet virkende i praksis. Google Books' cover-billeder kan ikke hentes direkte fra browseren (CORS) — løst ved at deploye `openlibrary-proxy`-Edge Functionen (som til trods for navnet er en generisk billed-proxy, ikke Open Library-specifik), bekræftet virkende i praksis, se ARCHITECTURE.md §17.
 - Discogs-synkronisering er ikke afprøvet mod den ægte Discogs-API og den ægte Edge Function-runtime (Deno) — kun logikken er enhedstestet, og hele flowet er testet ende-til-ende mod en lokal Postgres med et mock-svar. Følg testplanen i §8 første gang, du kører det for rigtigt.
 - Mobilvisnings-rettelsen (se §8) er testet i en headless browser i mobilstørrelse, ikke på en fysisk Samsung-enhed — bekræft gerne i praksis.
 - Ingen CSV-bulk-import (fandtes i Atlas 1, ikke i MVP-scopet for Atlas 2).
