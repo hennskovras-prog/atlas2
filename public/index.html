@@ -842,14 +842,29 @@ function normalizeGoogleResults(items) {
 let googleBooksLastError = null;
 
 const googleBooksApi = {
-  async search(q) {
-    googleBooksLastError = null;
+  // Christian oplevede, at Google Books' BooksVolumes.List-endpoint svarer
+  // med HTTP 503 en del af tiden, men rent faktisk virker andre gange — helt
+  // uafhængigt af nøgle/opsætning (bekræftet af Google Cloud Consoles egne
+  // metrics under fejlsøgningen: samme nøgle, samme opsætning, skiftende
+  // resultat). Det er en klassisk "prøv igen"-fejl, så ét enkelt automatisk
+  // gensøg efter en kort pause er en proportional forbedring — ikke en fuld
+  // retry-/backoff-mekanisme, bare ét ekstra forsøg, før vi giver op og viser
+  // fejlen i UI'et.
+  async search(q, _isRetry = false) {
+    if (!_isRetry) googleBooksLastError = null;
     try {
       const res = await fetch(`${GOOGLE_BOOKS_SEARCH_URL}?q=${encodeURIComponent(q)}&key=${GOOGLE_BOOKS_API_KEY}&maxResults=10`);
       if (!res.ok) {
+        if (res.status === 503 && !_isRetry) {
+          console.info('[Google Books] HTTP 503 — prøver igen om et øjeblik…');
+          await new Promise((r) => setTimeout(r, 600));
+          return googleBooksApi.search(q, true);
+        }
         googleBooksLastError = res.status === 429
           ? 'Google Books-kvoten er opbrugt lige nu (HTTP 429) — prøv igen senere.'
-          : `Google Books svarede HTTP ${res.status}`;
+          : res.status === 503
+            ? 'Google Books\' server svarede ikke (HTTP 503), selv efter et nyt forsøg — prøv igen om lidt.'
+            : `Google Books svarede HTTP ${res.status}`;
         console.warn('[Google Books]', googleBooksLastError);
         return [];
       }
