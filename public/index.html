@@ -339,6 +339,8 @@
         <div class="ol-results" id="ol-results"></div>
       </div>
 
+      <div id="dup-warning" style="display:none; background:#FBEAEA; border:1px solid var(--danger); color:var(--danger); border-radius:8px; padding:8px 10px; font-size:0.85rem; margin-bottom:12px;"></div>
+
       <div class="field-row">
         <div class="field">
           <label for="f-year">Udgivelsesår</label>
@@ -895,6 +897,76 @@ function dedupeSearchResults(results) {
   });
 }
 
+// ============================================================================
+// Dublet-forebyggelse — samme princip som streaming-appen bruger til at
+// undgå at samme serie/film tilføjes to gange: tjek op mod et eksternt id
+// (her: Open Library-nøgle og ISBN) FØR der gemmes, ikke bare efter. Databasen
+// har en tilsvarende UNIQUE-constraint som sidste, ufejlbarlige spærre (se
+// migrations/003_books_duplicate_prevention.sql) — denne klient-side kode er
+// for at Christian får en venlig advarsel MED DET SAMME, i stedet for først
+// at opdage det efter at have udfyldt hele formularen og trykket gem.
+//
+// ISBN normaliseres (bindestreger/mellemrum fjernet, store bogstaver), fordi
+// Open Library, Google Books og manuel indtastning ikke altid formaterer
+// samme ISBN ens — se samme normalisering i migrationsfilen.
+function normalizeIsbn(isbn) {
+  return (isbn || '').toUpperCase().replace(/[^0-9X]/g, '');
+}
+
+function normalizeText(s) {
+  return (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/** Finder en eksisterende bog i det allerede indlæste bibliotek, der ser ud
+ *  til at være samme bog som kandidaten. excludeId udelades, så redigering
+ *  af en bog ikke opfatter bogen selv som en dublet (se kommentar ved
+ *  ol-search-field: søgning er bevidst tilladt under redigering, for at
+ *  kunne genfinde/rette cover på en allerede gemt bog).
+ *
+ *  To slags match, med hver sin styrke:
+ *   - 'id'-match (ISBN eller Open Library-nøgle): meget sikkert — det er
+ *     stort set umuligt at to forskellige bøger deler samme ISBN. Denne er
+ *     også dem, databasens UNIQUE-index håndhæver hårdt (se
+ *     migrations/003_books_duplicate_prevention.sql).
+ *   - 'title'-match (samme titel ALENE, forfatter ses der bevidst bort fra —
+ *     Christian: "jeg tror det skal gælde samme titel alene"): fanger fx at
+ *     skrive den samme bog ind manuelt to gange uden at bruge søgningen,
+ *     eller hvor forfatteren er stavet/indtastet lidt forskelligt de to
+ *     gange. Er IKKE en garanti — to forskellige udgaver/oversættelser
+ *     rammer også dette, og en generisk titel (fx "Digte") kan i sjældne
+ *     tilfælde dele titel med en helt anden bog af en anden forfatter.
+ *     Derfor kun en advarsel, ALDRIG en databasespærre (en hård
+ *     UNIQUE-constraint på ren titel ville forhindre for mange legitime
+ *     tilfælde). */
+function findDuplicateBook({ isbn, openlibrary_key, title }, excludeId) {
+  const normIsbn = normalizeIsbn(isbn);
+  const key = (openlibrary_key || '').trim();
+  const normTitle = normalizeText(title);
+  let titleMatch = null;
+  for (const b of books) {
+    if (excludeId && String(b.id) === String(excludeId)) continue;
+    if (key && b.openlibrary_key && b.openlibrary_key.trim() === key) return { book: b, reason: 'id' };
+    if (normIsbn && normalizeIsbn(b.isbn) === normIsbn) return { book: b, reason: 'id' };
+    if (!titleMatch && normTitle && normTitle === normalizeText(b.title)) {
+      titleMatch = { book: b, reason: 'title' };
+    }
+  }
+  return titleMatch;
+}
+
+function showDupWarning({ book, reason }) {
+  const el = document.getElementById('dup-warning');
+  const why = reason === 'id'
+    ? 'samme ISBN eller Open Library-nøgle'
+    : 'samme titel, men ikke nødvendigvis samme ISBN eller forfatter — kan også være en anden udgave';
+  el.textContent = `⚠️ Du har vist allerede "${book.title}"${book.author ? ' af ' + book.author : ''} i biblioteket (${why}). Du kan stadig rette felterne her, men "Gem" vil tilbyde at redigere den eksisterende bog i stedet for at oprette en dublet.`;
+  el.style.display = '';
+}
+
+function clearDupWarning() {
+  document.getElementById('dup-warning').style.display = 'none';
+}
+
 const openLibraryApi = {
   async search(q) {
     try {
@@ -1265,6 +1337,7 @@ function resetForm() {
   document.getElementById('toggle-more-fields').textContent = '+ Flere felter';
   document.getElementById('form-delete-btn').style.display = 'none';
   pendingCoverDataUri = undefined;
+  clearDupWarning();
 }
 
 function openForm(book) {
@@ -1308,6 +1381,11 @@ document.getElementById('f-cover-file').addEventListener('change', (e) => {
   reader.readAsDataURL(file);
 });
 
+// Rydder dublet-advarslen, hvis Christian selv retter ISBN'et bagefter —
+// ellers ville en forældet advarsel (fra et tidligere valgt søgeresultat)
+// blive stående og se ud som om DEN nye, manuelt rettede ISBN er dubleret.
+document.getElementById('f-isbn').addEventListener('input', clearDupWarning);
+
 let olQueuedFields = {}; // ekstra felter valgt fra et Open Library-resultat, sendes ved gem
 document.getElementById('ol-search-btn').addEventListener('click', doOpenLibrarySearch);
 document.getElementById('ol-query').addEventListener('keydown', (e) => {
@@ -1340,17 +1418,30 @@ async function doOpenLibrarySearch() {
       resultsEl.innerHTML = googleWarningHtml + '<div style="padding:6px; color:var(--text-muted); font-size:0.85rem;">Ingen resultater — udfyld manuelt i stedet.</div>';
       return;
     }
-    resultsEl.innerHTML = googleWarningHtml + results.map((r, i) => `
+    // excludeId: mens man redigerer en bog, skal SAMME bog ikke flagges som
+    // sin egen dublet, når man genfinder den for at rette cover (se
+    // kommentaren ved ol-search-field).
+    const excludeId = document.getElementById('f-id').value;
+    resultsEl.innerHTML = googleWarningHtml + results.map((r, i) => {
+      const dup = findDuplicateBook(r, excludeId);
+      const badge = dup
+        ? `<div style="color:var(--danger); font-size:0.78em;">⚠️ Findes vist allerede i biblioteket${dup.reason === 'title' ? ' (samme titel)' : ''}</div>`
+        : '';
+      return `
       <div class="ol-result">
         <img src="${r.cover_url || ''}" onerror="this.style.visibility='hidden'">
         <div class="info">${escapeHtml(r.title)}${r.author ? ' — ' + escapeHtml(r.author) : ''}${r.year ? ' (' + r.year + ')' : ''}
           <span style="color:var(--text-muted); font-size:0.75em;"> · ${escapeHtml(r._source)}</span>
+          ${badge}
         </div>
         <button type="button" data-pick="${i}">Vælg</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     resultsEl.querySelectorAll('[data-pick]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const r = results[Number(btn.dataset.pick)];
+        const dup = findDuplicateBook(r, excludeId);
+        if (dup) showDupWarning(dup); else clearDupWarning();
         document.getElementById('f-title').value = r.title || '';
         document.getElementById('f-author').value = r.author || '';
         document.getElementById('f-year').value = r.year || '';
@@ -1495,6 +1586,38 @@ document.getElementById('book-form').addEventListener('submit', async (e) => {
   // er den bevidste rettelse af Atlas 1's kendte "cover bliver nulstillet"-fejl.
   if (pendingCoverDataUri !== undefined) payload.cover_data = pendingCoverDataUri;
 
+  // Sidste chance for at fange en dublet FØR der overhovedet sendes noget af
+  // sted — dækker også manuel indtastning (samme ISBN, ELLER præcis samme
+  // titel alene, uden at bruge søgningen overhovedet).
+  //
+  // 'id'-match (ISBN/Open Library-nøgle) er stort set altid en ægte dublet,
+  // og databasens UNIQUE-index (se migrations/003_books_duplicate_prevention.sql)
+  // ville alligevel afvise et forsøg på at gemme som ny — så her tilbydes
+  // KUN at redigere den eksisterende bog eller selv rette felterne, aldrig
+  // "gem alligevel som ny bog" (samme princip som streaming-appen bruger til
+  // serier/film: to rækker med samme eksterne id giver ingen mening).
+  //
+  // 'title'-match (samme titel alene, forfatter ses der bevidst bort fra —
+  // se findDuplicateBook) er en svagere formodning — kan være en anden
+  // udgave/oversættelse, eller bare to bøger med samme titel af forskellige
+  // forfattere — og har INGEN tilsvarende databasespærre. Her advares der på
+  // samme måde, men "gem alligevel som ny bog" ER en reel mulighed.
+  const existingDup = findDuplicateBook(payload, id);
+  if (existingDup) {
+    const isStrongMatch = existingDup.reason === 'id';
+    const message = isStrongMatch
+      ? `Du har vist allerede "${existingDup.book.title}"${existingDup.book.author ? ' af ' + existingDup.book.author : ''} i biblioteket (samme ISBN eller Open Library-nøgle).\n\n`
+        + 'Tryk OK for at redigere den eksisterende bog i stedet.\n'
+        + 'Tryk Annullér for selv at rette felterne her (fx hvis det rent faktisk er en anden bog eller udgave).'
+      : `Du har allerede en bog med præcis samme titel: "${existingDup.book.title}"${existingDup.book.author ? ' (af ' + existingDup.book.author + ')' : ''}.\n\n`
+        + 'Tryk OK for at redigere den eksisterende bog i stedet.\n'
+        + 'Tryk Annullér for at gemme denne som en ny, separat bog alligevel (fx hvis det er en anden udgave/oversættelse, eller en anden forfatter med samme titel).';
+    const goToExisting = confirm(message);
+    if (goToExisting) { openForm(existingDup.book); return; }
+    if (isStrongMatch) return; // ville alligevel blive afvist af databasens UNIQUE-index
+    // title-match + Annullér: fortsæt til den almindelige gem-logik nedenfor.
+  }
+
   try {
     if (id) {
       const updated = await booksApi.update(id, payload);
@@ -1511,7 +1634,15 @@ document.getElementById('book-form').addEventListener('submit', async (e) => {
     closeModal('form-backdrop');
     render();
   } catch (err) {
-    showToast(err.message);
+    // Databasens UNIQUE-index (backstop, se kommentar ovenfor) svarer med en
+    // rå Postgres-fejltekst ("duplicate key value violates unique
+    // constraint…") — den er reelt uforståelig i en toast, så den oversættes
+    // her. Rammes kun hvis dublet-tjekket lige over alligevel blev forbigået
+    // (fx en dublet tilføjet fra en anden fane/enhed i mellemtiden).
+    const msg = /duplicate key value violates unique constraint/i.test(err.message)
+      ? 'Denne bog findes allerede i biblioteket (samme ISBN eller Open Library-nøgle) — blev ikke gemt som en dublet.'
+      : err.message;
+    showToast(msg);
   }
 });
 

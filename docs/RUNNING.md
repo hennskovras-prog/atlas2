@@ -189,6 +189,17 @@ Modaler (login, formularer, detaljer) blev tidligere positioneret med ren `vh`/`
 
 "📷 Scan stregkode"-knap i "+ Tilføj bog" åbner kameraet og læser ISBN-13-stregkoder automatisk via browserens indbyggede `BarcodeDetector` — ingen nyt API, ingen ny hemmelighed, genbruger den eksisterende Open Library/Google Books-søgning (send scannet ISBN som `isbn:<kode>`). **Kræver Chrome eller Samsung Internet på Android** (bekræftet understøttet) — virker IKKE i Firefox eller Safari/iOS; knappen viser en forklarende besked i stedet for at fejle, hvis browseren ikke understøtter det. Se ARCHITECTURE.md §13 for detaljer, inkl. hvorfor selve genkendelsen ikke kunne testes fra denne sandkasse (Linux-Chromium mangler den bagvedliggende platform-understøttelse, som Android har) — bekræft venligst selv på din Samsung, at det virker i praksis.
 
+### Dublet-forebyggelse for bøger (tilføjet)
+
+Christian spurgte, hvordan streaming-tracker-appen ("Serier & film") forhindrer, at samme serie/film tilføjes to gange, og bad om samme beskyttelse for bøger. Samme princip som der (og som `records.discogs_release_id`, se §8 ovenfor): et rigtigt UNIQUE-index i databasen på ISBN og Open Library-nøgle (kun når udfyldt — mange ældre bøger i biblioteket har hverken), som den sidste, ufejlbarlige spærre. Derudover advarer klienten med det samme, hvis et søgeresultat eller en manuelt indtastet ISBN matcher en bog, du allerede har: et "Findes vist allerede i biblioteket"-mærke direkte i søgeresultaterne, en advarsel i formularen, og — hvis du alligevel trykker "Gem" — et valg mellem at redigere den eksisterende bog i stedet, eller selv rette felterne (fx hvis det rent faktisk viser sig at være en anden bog eller udgave).
+
+**Sådan sætter du det op (gør det kun én gang, i dit eksisterende Supabase-projekt):**
+
+1. Gå til **SQL Editor** → New query → indsæt hele indholdet af `migrations/003_books_duplicate_prevention.sql` → kør. Opretter kun to indekser, ingen skemaændringer, ingen nedetid.
+2. **Opdatér `public/index.html`** med den nyeste version og læg den op, hvor du plejer (samme sted som i §7 Deploy).
+
+**Testet lokalt** (samme metode som resten af projektet): en Playwright-test mod en ægte lokal Postgres-kopi med de 301 rigtige bøger dækker både "vælg et søgeresultat, der allerede findes" (mærke + advarsel + valg mellem redigér/ret felter, ingen dublet oprettet) og selve databasespærren direkte (samme ISBN med/uden bindestreger afvises begge). Ikke afprøvet: at den friendly fejlbesked rent faktisk rammes i din RIGTIGE Supabase (kun via test-shimmen her) — meget usandsynligt at opføre sig anderledes, da det er ren Postgres-adfærd, men nævnes for en ordens skyld.
+
 For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåede `item_tags`/`favorites`-tabel i `migrations/SCHEMA_MAPPING.md`.
 
 ## 9. Kendte begrænsninger
