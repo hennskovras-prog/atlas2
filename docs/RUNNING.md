@@ -228,6 +228,28 @@ Christian spurgte, hvordan streaming-tracker-appen ("Serier & film") forhindrer,
 
 For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåede `item_tags`/`favorites`-tabel i `migrations/SCHEMA_MAPPING.md`.
 
+### Covers tager lang tid at loade (rettet)
+
+Christian rapporterede, at covers ofte var langsomme om at loade (Bøger-fanen især). Årsagen: `cover_data` gemmes som base64 direkte i Postgres og hentes over API'et for hver synlig side/fane, hvert eneste besøg (ingen browser-cache af data-URI'er) — og INTET sted i appen blev billedet skaleret ned, før det blev gemt. To kilder ramte dette særligt hårdt:
+
+1. **Manuelt uploadede telefonfotos** (`f-cover-file`, `cf-cover-file`, `jf-cover-file`, `sf-cover-file` — Bøger/Jumbo/Anders And/Tintin+Far Side) blev gemt i fuld kameraopløsning (ofte flere MB som base64).
+2. **Open Library/Google-covers, der "selv-hostes"** (`coverAsDataUri()`, når du vælger et søgeresultat ved tilføjelse af en bog) hentede tidligere Open Librarys fulde "-L"-størrelse og gemte den råt.
+
+Løsning: én delt funktion, `resizeImageToDataUri()`, skalerer nu ALTID ned til maks 640px på den længste led og genkoder som JPEG (kvalitet 0.82), FØR noget gemmes som `cover_data` — brugt begge de nævnte steder. Et telefonfoto på flere MB bliver typisk til nogle få hundrede KB; et Open Library-cover bliver typisk til under 50 KB. Dette gælder kun NYE uploads/hentninger fremadrettet — allerede gemte covers i databasen er ikke automatisk skaleret ned (se §9).
+
+**Testet lokalt:** JS-syntaks verificeret; selve billedskaleringen (canvas/`Image`) kræver en rigtig browser-DOM og er ikke afprøvet med Playwright i denne omgang — bekræft gerne i praksis, at nye covers (både upload og Open Library-valg) fortsat ser fornuftige ud efter nedskalering.
+
+**Faktisk fundet i Christians rigtige database** (via Supabase, 5. september 2026): 347 af 376 bøger har et cover, i snit 557 KB og størst 6,6 MB — 189 MB i alt kun for Bøger. Det er den reelle årsag til den langsomme indlæsning, ikke bare en teoretisk risiko.
+
+**Ryd op i de eksisterende covers (valgfrit, men anbefalet — kør én gang):**
+
+1. Åbn `tools/shrink_existing_covers.html` i din browser (samme fremgangsmåde som `tools/migrate_real_data.html`).
+2. Log ind med din Atlas 2-konto (samme login som selve appen — værktøjet bruger den almindelige `authenticated`-adgang, ingen særlig nøgle).
+3. Tryk "Skalér alle eksisterende covers ned". Værktøjet henter hver cover i `books`, `jumbo_books`, `comic_years` og `album_series` (Plader har kun `cover_url`, ikke `cover_data`, og er udeladt), skalerer den ned med samme grænse som appen nu selv bruger (640px, JPEG 0.82), og gemmer den tilbage — kun `cover_data` ændres, intet slettes. Kør det gerne på wifi, det tager nogle minutter for ~370 covers.
+4. Loggen viser fremskridt pr. cover og en samlet før/efter-størrelse til sidst.
+
+Ikke afprøvet mod den ægte database i denne omgang (kun bygget og syntakstjekket) — kør det selv og bekræft, at covers stadig ser fornuftige ud bagefter.
+
 ## 9. Kendte begrænsninger
 
 - Bøger, Jumbo-bøger, Anders And-årgange, Tintin, Far Side og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
@@ -241,3 +263,4 @@ For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåed
 - Ingen CSV-bulk-import (fandtes i Atlas 1, ikke i MVP-scopet for Atlas 2).
 - Refresh-token-fornyelse er minimal, rå fetch uden SDK — fungerer for normal brug, se ARCHITECTURE.md §7 for kendte kant-tilfælde.
 - `legacy-node-sqlite/` er ikke en del af produktionsappen — se dens egen README for status.
+- Cover-nedskalering i selve appen (se §8's "Covers tager lang tid at loade") gælder kun NYE covers fremadrettet. Allerede gemte `cover_data`-blobs skaleres kun ned, hvis du selv kører `tools/shrink_existing_covers.html` (se samme afsnit) — ikke gjort automatisk.

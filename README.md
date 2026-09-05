@@ -19,3 +19,5 @@ Se `docs/RUNNING.md` for alle detaljer, inkl. login-opsætning og Open Library-f
 `legacy-node-sqlite/` er den oprindelige MVP (Node + SQLite) fra før arkitekturomlægningen — ikke en del af den kørende app, kun bevaret som reference.
 
 `tools/migrate_real_data.html` er engangsværktøjet, der blev brugt til at importere de rigtige Atlas 1-data fra Turso — ikke en del af den kørende app, se `docs/ARCHITECTURE.md` §9.
+
+`tools/shrink_existing_covers.html` er engangsværktøjet, der skalerer allerede gemte covers ned til appens nye størrelsesgrænse — se `docs/RUNNING.md` §8 "Covers tager lang tid at loade".

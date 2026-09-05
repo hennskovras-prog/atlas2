@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas 2 — Engangsværktøj: skalér eksisterende covers ned</title>
+<style>
+  :root { --bg:#faf8f5; --ink:#2a2622; --muted:#8a8078; --line:#e5ddd3; --accent:#8b5e3c; --danger:#b3432b; --ok:#3f7a4f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); padding: 2rem; line-height:1.5; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .sub { color: var(--muted); margin-bottom: 1.5rem; }
+  .warn { background:#fdf1ec; border:1px solid #f0c9b8; color:#7a3520; padding:1rem 1.25rem; border-radius:10px; margin-bottom:1.5rem; font-size:0.95rem; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:1.5rem; margin-bottom:1.25rem; }
+  .card h2 { font-size:1rem; margin:0 0 0.75rem; }
+  label { display:block; font-size:0.85rem; color:var(--muted); margin-bottom:0.3rem; }
+  input[type=email], input[type=password] { width:100%; padding:0.6rem 0.75rem; border:1px solid var(--line); border-radius:8px; font-size:0.95rem; margin-bottom:0.75rem; }
+  button { background:var(--accent); color:#fff; border:none; padding:0.65rem 1.25rem; border-radius:8px; font-size:0.95rem; cursor:pointer; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  .status-line { font-size:0.85rem; margin-top:0.5rem; }
+  .ok { color: var(--ok); }
+  .err { color: var(--danger); }
+  #log { background:#1e1c1a; color:#e8e2d8; font-family: ui-monospace, monospace; font-size:0.82rem; padding:1rem; border-radius:10px; height:320px; overflow-y:auto; white-space:pre-wrap; }
+  .stats { font-size:0.9rem; margin-top:0.75rem; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>Atlas 2 — skalér eksisterende covers ned</h1>
+  <p class="sub">Engangsværktøj. Ikke en del af selve Atlas 2-appen — brug det én gang, luk det derefter.</p>
+
+  <div class="warn">
+    <strong>Hvad gør dette?</strong> Mange covers (især i Bøger) ligger gemt i fuld foto-/download-opløsning — nogle over 6 MB pr. billede — hvilket er derfor covers nogle gange er langsomme at hente i appen. Dette værktøj henter hver eksisterende cover, skalerer den ned til maks 640px og gemmer den tilbage som et komprimeret JPEG — samme grænse som appen nu selv bruger for NYE covers (se docs/RUNNING.md). Kun <code>cover_data</code> ændres, intet andet felt, og ingen rækker slettes. Billedkvaliteten bliver en anelse lavere (det er hele pointen — mindre data), men fuldt læselig som cover-thumbnail. Kør det én gang, gerne på wifi — det henter og gensender alle covers.
+  </div>
+
+  <div class="card">
+    <h2>1. Log ind</h2>
+    <label for="email">E-mail</label>
+    <input id="email" type="email" autocomplete="username">
+    <label for="password">Kodeord</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="login-btn">Log ind</button>
+    <div id="login-status" class="status-line"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Kør oprydningen</h2>
+    <button id="run-btn" disabled>Skalér alle eksisterende covers ned</button>
+    <div id="log"></div>
+    <div id="stats" class="stats"></div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://ccasocoyuzwhnrxmupze.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjYXNvY295dXp3aG5yeG11cHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMDk0MjksImV4cCI6MjEwMzU4NTQyOX0.m5M9zMd5tFImozmhIM3rozH20IEqlzbeFlGpNjoD2_U';
+  const REST_URL = `${SUPABASE_URL}/rest/v1`;
+  const AUTH_URL = `${SUPABASE_URL}/auth/v1`;
+
+  // Samme grænser som public/index.html's resizeImageToDataUri() — se
+  // docs/RUNNING.md "Covers tager lang tid at loade". Holdt i sync manuelt,
+  // da dette er et selvstændigt engangsværktøj uden byggetrin/delt modul.
+  const COVER_MAX_DIMENSION = 640;
+  const COVER_JPEG_QUALITY = 0.82;
+
+  // Tabeller med et cover_data-felt. 'records' (Plader) har kun cover_url
+  // (Discogs-hotlink, intet eget upload) og er derfor bevidst udeladt.
+  const TABLES = ['books', 'jumbo_books', 'comic_years', 'album_series'];
+  const PAGE_SIZE = 10; // små bidder, da cover_data kan være flere MB pr. række
+
+  let accessToken = null;
+
+  const logEl = document.getElementById('log');
+  function log(msg, cls) {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = msg;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  document.getElementById('login-btn').addEventListener('click', async () => {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const statusEl = document.getElementById('login-status');
+    statusEl.textContent = 'Logger ind...';
+    statusEl.className = 'status-line';
+    try {
+      const res = await fetch(`${AUTH_URL}/token?grant_type=password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error_description || data.error || 'Login fejlede');
+      accessToken = data.access_token;
+      statusEl.textContent = `Logget ind som ${data.user.email}`;
+      statusEl.className = 'status-line ok';
+      document.getElementById('run-btn').disabled = false;
+    } catch (err) {
+      statusEl.textContent = 'Fejl: ' + err.message;
+      statusEl.className = 'status-line err';
+    }
+  });
+
+  async function pgFetch(path, opts) {
+    const res = await fetch(`${REST_URL}${path}`, {
+      ...opts,
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(opts && opts.headers),
+      },
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); } catch (e) {}
+      throw new Error(`${res.status} ${res.statusText} ${detail}`);
+    }
+    return res;
+  }
+
+  // Samme skalerings-logik som public/index.html's resizeImageToDataUri(),
+  // her tilpasset til at tage en data-URI (fra databasen) i stedet for en
+  // Blob (fra en <input type=file>) som input.
+  function resizeDataUri(dataUri, { maxDim = COVER_MAX_DIMENSION, quality = COVER_JPEG_QUALITY } = {}) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('Kunne ikke afkode billedet.'));
+      img.src = dataUri;
+    });
+  }
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  async function processTable(table, totals) {
+    log(`\n== ${table} ==`);
+    let offset = 0;
+    let pageCount = 0;
+    for (;;) {
+      const res = await pgFetch(
+        `/${table}?select=id,cover_data&cover_data=not.is.null&order=id.asc&offset=${offset}&limit=${PAGE_SIZE}`
+      );
+      const rows = await res.json();
+      if (rows.length === 0) break;
+      pageCount += rows.length;
+
+      for (const row of rows) {
+        const before = row.cover_data.length;
+        totals.beforeBytes += before;
+        totals.count += 1;
+        try {
+          const resized = await resizeDataUri(row.cover_data);
+          const after = resized.length;
+          if (after < before) {
+            await pgFetch(`/${table}?id=eq.${row.id}`, {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: JSON.stringify({ cover_data: resized }),
+            });
+            totals.afterBytes += after;
+            totals.shrunk += 1;
+            log(`  #${row.id}: ${fmtBytes(before)} → ${fmtBytes(after)}`, 'ok');
+          } else {
+            // Sjældent, men muligt for allerede små/simple billeder — behold originalen.
+            totals.afterBytes += before;
+            log(`  #${row.id}: allerede lille nok (${fmtBytes(before)}), sprunget over`);
+          }
+        } catch (err) {
+          totals.afterBytes += before;
+          totals.failed += 1;
+          log(`  #${row.id}: FEJL — ${err.message}`, 'err');
+        }
+      }
+      offset += PAGE_SIZE;
+    }
+    log(`${table}: ${pageCount} covers behandlet.`);
+  }
+
+  document.getElementById('run-btn').addEventListener('click', async () => {
+    document.getElementById('run-btn').disabled = true;
+    logEl.innerHTML = '';
+    document.getElementById('stats').textContent = '';
+    log('Starter oprydning — dette kan tage nogle minutter...');
+    const totals = { count: 0, shrunk: 0, failed: 0, beforeBytes: 0, afterBytes: 0 };
+    try {
+      for (const table of TABLES) {
+        await processTable(table, totals);
+      }
+      log('\n== Færdig ==', 'ok');
+      const savedBytes = totals.beforeBytes - totals.afterBytes;
+      document.getElementById('stats').innerHTML = `
+        ${totals.count} covers behandlet, ${totals.shrunk} skaleret ned, ${totals.failed} fejlede.<br>
+        Samlet størrelse: ${fmtBytes(totals.beforeBytes)} → ${fmtBytes(totals.afterBytes)}
+        (sparet ${fmtBytes(savedBytes)}).`;
+      if (totals.failed > 0) {
+        log(`${totals.failed} covers kunne ikke skaleres (se fejl ovenfor) — de er efterladt uændrede, intet er slettet.`, 'err');
+      }
+    } catch (err) {
+      log('\nSTOPPET pga. fejl: ' + err.message, 'err');
+    } finally {
+      document.getElementById('run-btn').disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
