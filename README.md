@@ -1,6 +1,6 @@
 # Atlas 2
 
-Personligt digitalt kulturbibliotek. Bøger, Jumbo-bøger, Anders And-årgange og Plader (Discogs-sync) har UI. Efterfølger til Atlas 1 (Streamlit/Turso), bygget efter samme grundarkitektur som streaming-tracker-appen "Serier & film": browser → Supabase/PostgREST → Postgres, ingen applikationsserver.
+Personligt digitalt kulturbibliotek. Bøger, Jumbo-bøger, Anders And-årgange, Tintin, Far Side og Plader (Discogs-sync) har UI. Efterfølger til Atlas 1 (Streamlit/Turso), bygget efter samme grundarkitektur som streaming-tracker-appen "Serier & film": browser → Supabase/PostgREST → Postgres, ingen applikationsserver.
 
 Deployes via GitHub + Netlify (kontinuerlig deploy) — se `docs/RUNNING.md` §7 for opsætning første gang.
 

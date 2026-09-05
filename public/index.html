@@ -243,6 +243,8 @@
     <button class="tab-btn active" data-tab="boeger">Bøger</button>
     <button class="tab-btn" data-tab="jumbo">Jumbo-bøger</button>
     <button class="tab-btn" data-tab="comics">Anders And</button>
+    <button class="tab-btn" data-tab="tintin">Tintin</button>
+    <button class="tab-btn" data-tab="farside">Far Side</button>
     <button class="tab-btn" data-tab="plader">Plader</button>
     <button class="tab-btn" disabled>Film <span class="soon">snart</span></button>
     <button class="tab-btn" disabled>Rejser <span class="soon">snart</span></button>
@@ -288,6 +290,28 @@
     </div>
     <div class="count-line" id="comics-count-line"></div>
     <div class="grid" id="comics-grid"></div>
+  </div>
+
+  <!-- Albumserier (Tintin, Far Side, m.fl.) — én fælles skabelon i JS
+       (SERIES_DEFS/seriesApi, se scriptet), men hver serie har sin egen fane
+       og sit eget grid, så de kan sorteres/filtreres uafhængigt og ikke
+       blandes visuelt. -->
+  <div id="view-tintin" style="display:none;">
+    <div class="toolbar">
+      <span style="flex:1 1 auto; color:var(--text-muted); font-size:0.9rem;">Sorteret efter nummer.</span>
+      <button class="btn" id="add-tintin-btn">+ Tilføj Tintin-album</button>
+    </div>
+    <div class="count-line" id="tintin-count-line"></div>
+    <div class="grid" id="tintin-grid"></div>
+  </div>
+
+  <div id="view-farside" style="display:none;">
+    <div class="toolbar">
+      <span style="flex:1 1 auto; color:var(--text-muted); font-size:0.9rem;">Sorteret efter nummer.</span>
+      <button class="btn" id="add-farside-btn">+ Tilføj Far Side-album</button>
+    </div>
+    <div class="count-line" id="farside-count-line"></div>
+    <div class="grid" id="farside-grid"></div>
   </div>
 
   <div id="view-plader" style="display:none;">
@@ -491,6 +515,61 @@
       <button class="modal-close" data-close="comic-detail-backdrop">✕</button>
     </div>
     <div id="comic-detail-body"></div>
+  </div>
+</div>
+
+<!-- Albumserier (Tintin, Far Side, m.fl.): ÉN delt modal opret/redigér for
+     alle serier — hvilken serie der er tale om styres af et skjult felt
+     (sf-series), sat når formularen åbnes. Se SERIES_DEFS i scriptet. -->
+<div class="modal-backdrop" id="series-form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="series-form-title">Tilføj album</h2>
+      <button class="modal-close" data-close="series-form-backdrop">✕</button>
+    </div>
+    <form id="series-form">
+      <input type="hidden" id="sf-id">
+      <input type="hidden" id="sf-series">
+      <div class="field">
+        <label for="sf-title">Titel *</label>
+        <input type="text" id="sf-title" required autocomplete="off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="sf-number">Nummer *</label>
+          <input type="number" id="sf-number" required>
+        </div>
+        <div class="field">
+          <label for="sf-year">År</label>
+          <input type="number" id="sf-year">
+        </div>
+      </div>
+      <div class="field">
+        <label for="sf-author">Forfatter/kunstner</label>
+        <input type="text" id="sf-author" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sf-cover-file">Cover (upload et foto af din egen udgave for at erstatte forslaget)</label>
+        <input type="file" id="sf-cover-file" accept="image/*">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="series-form-delete-btn" style="display:none;">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="series-form-backdrop">Annullér</button>
+        <button type="submit" class="btn" id="series-form-save-btn">Gem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Albumserier: delt modal detalje (vises ved klik, ingen login krævet) -->
+<div class="modal-backdrop" id="series-detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="series-detail-title">Album</h2>
+      <button class="modal-close" data-close="series-detail-backdrop">✕</button>
+    </div>
+    <div id="series-detail-body"></div>
   </div>
 </div>
 
@@ -1991,6 +2070,230 @@ document.getElementById('jumbo-form-delete-btn').addEventListener('click', async
 });
 
 // ============================================================================
+// Albumserier — Tintin, Far Side, og fremtidige lignende serier (fx Asterix).
+//
+// Christian bad specifikt om ÉT fælles mønster for disse to samlinger fremfor
+// endnu et par kopierede tabel+funktions-sæt (Jumbo/Anders And-opskriften i
+// docs/RUNNING.md §8) — netop fordi "Tintin" og "Far Side" er strukturelt
+// identiske (nummereret albumserie af én fast kunstner) og flere kan komme
+// til senere. Løsningen: ÉN tabel (album_series, se
+// migrations/004_album_series.sql) med en "series"-kolonne som nøgle, ÉT
+// delt formular/detalje-modalpar (series-form-backdrop/series-detail-backdrop),
+// og ÉT sæt funktioner herunder, parametriseret med series-nøglen — men
+// stadig ÉT grid/fane PR. serie (se view-tintin/view-farside ovenfor), så
+// Tintin og Far Side ikke blandes visuelt, og hver fane kan indlæses for sig.
+//
+// For at tilføje en ny serie senere (fx Asterix): tilføj én linje til
+// SERIES_DEFS, én fane-knap + view-container i HTML'en, kald loadSeriesAlbums
+// fra switchTab() for den nye fane — ingen ny tabel, ingen nye funktioner.
+// ============================================================================
+
+const SERIES_DEFS = {
+  tintin:  { label: 'Tintin',    itemLabel: 'Tintin-album',    icon: '🚀', defaultAuthor: 'Hergé' },
+  farside: { label: 'Far Side',  itemLabel: 'Far Side-album',  icon: '📰', defaultAuthor: 'Gary Larson' },
+};
+
+const seriesApi = {
+  list: (series) => pgrest('GET', '/album_series?' + qs({ select: '*', series: `eq.${series}`, order: 'number.asc' })),
+  create: (fields) => pgrest('POST', '/album_series', { body: fields, singular: true }),
+  update: (id, fields) => pgrest('PATCH', '/album_series?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  remove: (id) => pgrest('DELETE', '/album_series?' + qs({ id: `eq.${id}` })),
+};
+
+// Album pr. serie-nøgle, holdt adskilt (ikke ét fælles array) så et
+// genindlæsning/sortering af Tintin aldrig kan påvirke Far Sides liste.
+const seriesAlbums = { tintin: [], farside: [] };
+const seriesLoadedOnce = { tintin: false, farside: false };
+
+async function loadSeriesAlbums(series) {
+  const grid = document.getElementById(`${series}-grid`);
+  try {
+    seriesAlbums[series] = await seriesApi.list(series);
+    seriesLoadedOnce[series] = true;
+    renderSeries(series);
+  } catch (err) {
+    grid.innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse ${escapeHtml(SERIES_DEFS[series].label)}: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function seriesCardHTML(series, album) {
+  const def = SERIES_DEFS[series];
+  // cover_data (eget upload) går altid forud for cover_url (forslag hentet
+  // fra Open Library ved oprettelse) — samme forrang som Plader ville have
+  // givet, hvis den samlingen tillod manuelt upload. onerror-faldbacket
+  // dækker et evt. dødt Open Library-link.
+  const coverHtml = album.cover_data
+    ? `<img src="${album.cover_data}" alt="Cover: ${escapeHtml(album.title)}" loading="lazy">`
+    : album.cover_url
+      ? `<img src="${escapeHtml(album.cover_url)}" alt="Cover: ${escapeHtml(album.title)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=&quot;cover-fallback&quot;>${def.icon}</div>'">`
+      : `<div class="cover-fallback">${def.icon}</div>`;
+  return `
+    <div class="card" data-id="${album.id}" data-action="open-series-detail" data-series="${series}">
+      <div class="cover-wrap">${coverHtml}</div>
+      <div class="body">
+        <div class="title">${escapeHtml(album.title)}</div>
+        <div class="author">Nr. ${album.number}${album.year ? ' · ' + album.year : ''}</div>
+      </div>
+    </div>`;
+}
+
+function renderSeries(series) {
+  const def = SERIES_DEFS[series];
+  const albums = seriesAlbums[series];
+  const countLine = document.getElementById(`${series}-count-line`);
+  const grid = document.getElementById(`${series}-grid`);
+  countLine.textContent = albums.length ? `${albums.length} ${def.label}-album` : '';
+  if (albums.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">${def.icon}</div><div>Der er endnu ikke tilføjet nogen ${escapeHtml(def.label)}-album. Tryk "+ Tilføj ${escapeHtml(def.itemLabel)}" for at komme i gang.</div></div>`;
+    return;
+  }
+  grid.innerHTML = albums.map((a) => seriesCardHTML(series, a)).join('');
+}
+
+['tintin', 'farside'].forEach((series) => {
+  document.getElementById(`${series}-grid`).addEventListener('click', (e) => {
+    const card = e.target.closest('[data-action="open-series-detail"]');
+    if (card) openSeriesDetail(series, Number(card.dataset.id));
+  });
+  document.getElementById(`add-${series}-btn`).addEventListener('click', () => openSeriesForm(series, null));
+});
+
+// Detalje-modal (fri at se, ligesom bøger/Jumbo/Anders And — login kræves
+// først når man rent faktisk trykker Redigér eller Slet).
+function openSeriesDetail(series, id) {
+  const def = SERIES_DEFS[series];
+  const album = seriesAlbums[series].find((x) => x.id === id);
+  if (!album) return;
+  const coverHtml = album.cover_data
+    ? `<img src="${album.cover_data}" alt="">`
+    : album.cover_url
+      ? `<img src="${escapeHtml(album.cover_url)}" alt="" onerror="this.parentElement.innerHTML='<div class=&quot;cover-fallback&quot; style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;&quot;>${def.icon}</div>'">`
+      : `<div class="cover-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">${def.icon}</div>`;
+  document.getElementById('series-detail-title').textContent = def.label;
+  document.getElementById('series-detail-body').innerHTML = `
+    <div class="clearfix">
+      <div class="detail-cover">${coverHtml}</div>
+      <h2 style="margin-bottom:4px;">${escapeHtml(album.title)}</h2>
+      <div class="detail-meta">${escapeHtml(def.label)} nr. ${album.number}${album.year ? ' · ' + album.year : ''}</div>
+      <div class="detail-meta">${escapeHtml(album.author || def.defaultAuthor)}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="series-detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn" id="series-detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('series-detail-edit-btn').addEventListener('click', () => {
+    closeModal('series-detail-backdrop');
+    openSeriesForm(series, album);
+  });
+  document.getElementById('series-detail-delete-btn').addEventListener('click', async () => {
+    if (!requireAuthOrPrompt()) return;
+    if (!confirm(`Slet "${album.title}"? Dette kan ikke fortrydes.`)) return;
+    closeModal('series-detail-backdrop');
+    try {
+      await seriesApi.remove(album.id);
+      seriesAlbums[series] = seriesAlbums[series].filter((x) => x.id !== album.id);
+      renderSeries(series);
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+  openModal('series-detail-backdrop');
+}
+
+let pendingSeriesCoverDataUri = undefined;
+
+function resetSeriesForm() {
+  document.getElementById('series-form').reset();
+  document.getElementById('sf-id').value = '';
+  document.getElementById('series-form-delete-btn').style.display = 'none';
+  pendingSeriesCoverDataUri = undefined;
+}
+
+function openSeriesForm(series, album) {
+  if (!requireAuthOrPrompt()) return;
+  const def = SERIES_DEFS[series];
+  resetSeriesForm();
+  document.getElementById('sf-series').value = series;
+  if (album) {
+    document.getElementById('series-form-title').textContent = `Redigér ${def.label}-album`;
+    document.getElementById('sf-id').value = album.id;
+    document.getElementById('sf-title').value = album.title || '';
+    document.getElementById('sf-number').value = album.number;
+    document.getElementById('sf-year').value = album.year || '';
+    document.getElementById('sf-author').value = album.author || '';
+    document.getElementById('series-form-delete-btn').style.display = '';
+  } else {
+    document.getElementById('series-form-title').textContent = `Tilføj ${def.itemLabel}`;
+    document.getElementById('sf-author').value = def.defaultAuthor || '';
+  }
+  openModal('series-form-backdrop');
+  document.getElementById('sf-title').focus();
+}
+
+document.getElementById('sf-cover-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { pendingSeriesCoverDataUri = reader.result; showToast('Cover klar til at blive gemt.'); };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('series-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('sf-id').value;
+  const series = document.getElementById('sf-series').value;
+  const payload = {
+    title: document.getElementById('sf-title').value.trim(),
+    number: Number(document.getElementById('sf-number').value),
+    year: document.getElementById('sf-year').value ? Number(document.getElementById('sf-year').value) : null,
+    author: document.getElementById('sf-author').value.trim() || null,
+  };
+  if (!id) payload.series = series; // "series" sættes kun ved oprettelse, ikke ved PATCH — en eksisterende række skifter aldrig serie herfra.
+  // Samme bevidste regel som bøger/Jumbo/Anders And: cover_data sendes KUN hvis ændret (et nyt upload erstatter så et evt. cover_url-forslag i UI'en, uden at slette selve URL'en i databasen).
+  if (pendingSeriesCoverDataUri !== undefined) payload.cover_data = pendingSeriesCoverDataUri;
+
+  try {
+    if (id) {
+      const updated = await seriesApi.update(id, payload);
+      const idx = seriesAlbums[series].findIndex((a) => a.id === updated.id);
+      if (idx !== -1) seriesAlbums[series][idx] = updated;
+      showToast('Album opdateret.');
+    } else {
+      const created = await seriesApi.create(payload);
+      seriesAlbums[series].push(created);
+      showToast('Album tilføjet.');
+    }
+    seriesAlbums[series].sort((a, b) => a.number - b.number);
+    closeModal('series-form-backdrop');
+    renderSeries(series);
+  } catch (err) {
+    const msg = /duplicate key value violates unique constraint/i.test(err.message)
+      ? `Der findes allerede et ${escapeHtml(SERIES_DEFS[series].label)}-album med dette nummer.`
+      : err.message;
+    showToast(msg);
+  }
+});
+
+document.getElementById('series-form-delete-btn').addEventListener('click', async () => {
+  const id = Number(document.getElementById('sf-id').value);
+  const series = document.getElementById('sf-series').value;
+  const title = document.getElementById('sf-title').value;
+  if (!confirm(`Slet "${title}"? Dette kan ikke fortrydes.`)) return;
+  try {
+    await seriesApi.remove(id);
+    seriesAlbums[series] = seriesAlbums[series].filter((a) => a.id !== id);
+    closeModal('series-form-backdrop');
+    renderSeries(series);
+    showToast('Album slettet.');
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// ============================================================================
 // Plader — tilføjes KUN via Discogs-sync (matcher Atlas 1: ingen manuel
 // "opret plade"). Redigering af titel/kunstner/år og sletning direkte fra
 // kortet; cover kan ikke redigeres (kommer udelukkende fra Discogs).
@@ -2177,9 +2480,12 @@ function switchTab(tab) {
   document.getElementById('view-boeger').style.display = tab === 'boeger' ? '' : 'none';
   document.getElementById('view-jumbo').style.display = tab === 'jumbo' ? '' : 'none';
   document.getElementById('view-comics').style.display = tab === 'comics' ? '' : 'none';
+  document.getElementById('view-tintin').style.display = tab === 'tintin' ? '' : 'none';
+  document.getElementById('view-farside').style.display = tab === 'farside' ? '' : 'none';
   document.getElementById('view-plader').style.display = tab === 'plader' ? '' : 'none';
   if (tab === 'jumbo' && !jumboLoadedOnce) loadJumboBooks();
   if (tab === 'comics' && !comicsLoadedOnce) loadComicYears();
+  if ((tab === 'tintin' || tab === 'farside') && !seriesLoadedOnce[tab]) loadSeriesAlbums(tab);
   if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
 }
 document.querySelectorAll('.tab-btn[data-tab]').forEach((btn) => {

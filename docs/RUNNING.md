@@ -138,6 +138,32 @@ Jumbo-bøger og Plader har nu UI (tilføjet efter bøger — se de to underafsni
 
 Hvis collectionen (som Plader) skal synkroniseres fra en ekstern tjeneste med sin egen adgangsnøgle, se Plader-afsnittet nedenfor for mønsteret med en Edge Function, der holder nøglen skjult server-side.
 
+**Undtagelse — nummererede albumserier af én fast kunstner (Tintin, Far Side, m.fl.):** følg IKKE opskriften ovenfor for disse. Se "Albumserier"-afsnittet nedenfor for et andet, mere genbrugeligt mønster (én fælles tabel + ét fælles sæt JS-funktioner for flere serier).
+
+### Albumserier — Tintin og Far Side (tilføjet)
+
+To nye faner ("Tintin", "Far Side"), men bevidst IKKE bygget efter opskriften øverst i dette afsnit (en ny tabel + et kopieret funktionssæt pr. samling). Christian bad specifikt om ét fælles mønster for begge, fordi de strukturelt er det samme (en nummereret albumserie af én fast kunstner/forfatter) og flere lignende serier kan komme til senere (fx Asterix).
+
+Løsningen: én tabel, `album_series` (`migrations/004_album_series.sql`), med en `series`-tekstkolonne som nøgle (`'tintin'`, `'farside'`, …) og `unique(series, number)` — to album i samme serie kan ikke dele nummer, men to forskellige serier må gerne begge have et nr. 0. I `public/index.html` styrer et lille opslagsobjekt, `SERIES_DEFS`, hvilke serier der findes (label, ikon, standardforfatter); ét sæt funktioner (`seriesApi`, `loadSeriesAlbums`, `renderSeries`, `openSeriesForm`, `openSeriesDetail`) og ét delt modalpar (`series-form-backdrop`/`series-detail-backdrop`) betjener dem alle, parametriseret med serienøglen — men hver serie har stadig sin egen fane og sit eget grid, så Tintin og Far Side aldrig blandes visuelt.
+
+**For at tilføje en ny albumserie senere (fx Asterix):** ingen ny tabel, ingen nye funktioner.
+1. Tilføj én linje til `SERIES_DEFS` (fx `asterix: { label: 'Asterix', itemLabel: 'Asterix-album', icon: '⚔️', defaultAuthor: 'Goscinny/Uderzo' }`).
+2. Tilføj en `<button class="tab-btn" data-tab="asterix">`-fane og en `view-asterix`-container (kopiér `view-tintin`-blokken, ret id'er og teksten på "+ Tilføj …"-knappen).
+3. Udvid `switchTab()`'s `if ((tab === 'tintin' || tab === 'farside') …)`-linje til også at tjekke `'asterix'`.
+4. Indsæt albummene i `album_series` med `series = 'asterix'`, evt. via en ny seed-fil efter mønsteret i `data/seed_album_series.sql`.
+
+**Covers:** de 29 seedede album har hver et `cover_url` (se `data/seed_album_series.sql`). De 23 Tintin-covers er RIGTIGE DANSKE forsider (Carlsen Comics' "Tintins Oplevelser"-genudgivelse) — Christian fandt selv kilden (Faraos.dk, en antikvarisk boghandel) og pegede Claude på den; billederne er matchet på HISTORIE, ikke på Faraos' egen (ikke-kronologiske) butiksnummerering, som ikke er det samme som Christians 0-22. De 6 Far Side-covers er stadig fra Open Library (engelske udgaver — "Far Side Gallery"-bøgerne er ikke udgivet på dansk, og det er ikke efterspurgt). Et `cover_data`-felt (samme upload-mønster som Jumbo-bøger/Anders And) findes ved siden af, og vises altid FØR `cover_url` i UI'en, så Christian til enhver tid kan uploade et foto af sin egen fysiske udgave for at erstatte forslaget — det oprindelige `cover_url` bliver liggende i databasen (ikke overskrevet), så et upload altid kan fortrydes ved at fjerne cover_data igen. Hvis et `cover_url` en dag går i stykker (dødt link), falder kortet automatisk tilbage til et emoji-ikon (samme `onerror`-mønster som Plader).
+
+**Fundet, men bevidst UDELADT fra de 23:** Faraos' "Tintins Oplevelser"-serie rummer også to album uden for Christians liste — en ikke-kanonisk filmatisering ("Tintin og Hajsøen", baseret på tegnefilmen, ikke en Hergé-fortælling) og det ufuldendte 24. album ("Tintin og Alfabet-kunsten"/"Tintin og Alfa-kunsten", udgivet posthumt i skitseform). Ingen af delene er tilføjet — spørg Christian, hvis han vil have dem med som bonus-rækker.
+
+**Sådan sætter du det op (gør det kun én gang, i dit eksisterende Supabase-projekt):**
+
+1. Gå til **SQL Editor** → New query → indsæt hele indholdet af `migrations/004_album_series.sql` → kør. Opretter tabellen, dens RLS-politikker og opdaterer `reset_all_sequences()`.
+2. (Valgfrit, men anbefalet) Kør også `data/seed_album_series.sql` — indlæser de 23 Tintin- (danske covers) og 6 Far Side-album (Open Library-covers).
+3. **Opdatér `public/index.html`** med den nyeste version og læg den op, hvor du plejer (samme sted som i §7 Deploy).
+
+**Testet lokalt** (samme metode som resten af projektet): en Playwright-test mod en ægte lokal Postgres-kopi (med de 301 rigtige bøger + de 29 seedede album) dækker begge faner uafhængigt af hinanden (liste, sortering efter nummer), detalje-visning uden login, login-krav for redigér/slet, opret/redigér/slet, at et forsøg på et dublet-nummer inden for samme serie afvises pænt (databasens `unique(series, number)`, oversat til en forklarende toast — samme mønster som bøgernes ISBN-spærre), samt manuelt cover-upload (`cover_data` sættes uden at slette det oprindelige `cover_url`-forslag). Ikke afprøvet: de faktiske Open Library-cover-billeder i praksis (denne sandkasse har ikke netværksadgang til `covers.openlibrary.org`) — kun at appen håndterer et dødt/blokeret billede korrekt (emoji-faldback, ingen fejl i konsollen). Bekræft venligst selv, at et par af covers rent faktisk ligner de rigtige album, når du har sat Supabase op — nogle er franske/engelske udgaver (se note-feltet i `data/seed_album_series.sql`), ikke de danske, du selv ejer.
+
 ### Jumbo-bøger (tilføjet)
 
 Egen fane, egen modal (`jumbo-form-backdrop`), redigering direkte fra kortet (moderniseret ift. Atlas 1's dropdown-admin-panel, se ATLAS_1_HANDOVER.md §"Jumbo-bøger"). Fast sorteret efter nummer, ingen søgning/paginering (kun 16 rækker). Testet fuldt ende-til-ende lokalt (liste, login-krav, opret med cover, redigér, slet, samt regression på bog-fanen) før levering.
@@ -204,7 +230,9 @@ For krydsgående features (favoritter, tags, anbefalinger) — se den foreslåed
 
 ## 9. Kendte begrænsninger
 
-- Bøger, Jumbo-bøger, Anders And-årgange og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
+- Bøger, Jumbo-bøger, Anders And-årgange, Tintin, Far Side og Plader har UI. Kun `trips` er stadig scaffoldet uden UI.
+- Far Side-covers (6 stk.) er engelske Open Library-udgaver, ikke danske — findes ikke udgivet på dansk. Tintin-covers (23 stk.) er derimod rigtige danske forsider, se §8's Albumserier-afsnit. Begge kan til enhver tid erstattes med et foto af din egen fysiske udgave via Redigér.
+- "Tintin og Hajsøen" (ikke-kanonisk filmatisering) og "Tintin og Alfabet-kunsten" (det ufuldendte 24. album) er bevidst UDELADT fra de 23 Tintin-album, selvom de findes i samme kilde (Faraos.dk) — se §8's Albumserier-afsnit.
 - Stregkode-scanning virker kun i Chrome/Samsung Internet på Android (browserbegrænsning, ikke noget vi kan rette) — se §8.
 - Open Library CORS: direkte browser-fetch virker fint i praksis, `openlibrary-proxy`-fallbacken er ikke nødvendig for selve Open Library-søgningen.
 - Bogsøgning bruger Open Library + Google Books (tilføjet som ekstra kilde for bedre dækning af nyere danske bøger) — se ARCHITECTURE.md §12/§16. Kræver en Google Books API-nøgle (se §16 — anonyme kald har 0 i daglig kvote); nøglen er sat op og bekræftet virkende i praksis. Google Books' cover-billeder kan ikke hentes direkte fra browseren (CORS) — løst ved at deploye `openlibrary-proxy`-Edge Functionen (som til trods for navnet er en generisk billed-proxy, ikke Open Library-specifik), bekræftet virkende i praksis, se ARCHITECTURE.md §17.
