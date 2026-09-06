@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Atlas — dit personlige kulturbibliotek</title>
+<!-- Google Identity Services — bruges KUN af Rejser-fanens "Søg efter rejser
+     i Gmail"-knap (prioritet 7, se docs/RUNNING.md §9) til at bede om en
+     kortlivet adgangstoken til Gmail, direkte i browseren. Ingen server, intet
+     gemt token — Atlas' eneste eksterne script-afhængighed, tilføjet bevidst
+     minimalt til dette ene formål. -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
@@ -404,6 +410,7 @@
         <option value="planned">Planlagt</option>
         <option value="wishlist">Ønskeliste</option>
       </select>
+      <button class="btn secondary" id="gmail-scan-btn" style="display:none;">Søg efter rejser i Gmail</button>
       <button class="btn" id="add-trip-btn">+ Tilføj rejse</button>
     </div>
     <div class="count-line" id="trips-count-line"></div>
@@ -3165,6 +3172,11 @@ document.getElementById('trip-form-delete-btn').addEventListener('click', async 
 const tripCandidatesApi = {
   list: () => pgrest('GET', '/trip_candidates?' + qs({ select: '*', status: 'eq.pending', order: 'created_at.asc' })),
   update: (id, fields) => pgrest('PATCH', '/trip_candidates?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  create: (fields) => pgrest('POST', '/trip_candidates', { body: fields, singular: true }),
+  // Bruges KUN af Gmail-scanningen til at undgå at foreslå samme mail igen —
+  // henter source_ref for ALLE kandidater uanset status (også afviste/
+  // godkendte/flettede), se runGmailScan().
+  allSourceRefs: () => pgrest('GET', '/trip_candidates?' + qs({ select: 'source_ref', source: 'eq.gmail' })),
 };
 
 let tripCandidates = [];
@@ -3259,6 +3271,13 @@ function candidateCardHTML(c) {
 }
 
 function renderTripCandidates() {
+  // "Søg efter rejser i Gmail"-knappen kræver login (skriver til
+  // trip_candidates) og at Google Identity Services rent faktisk nåede at
+  // loade (se <script>-tagget i <head> — kan mangle offline eller hvis
+  // Google blokeres af en annonce-/tracker-blokering).
+  const gmailBtn = document.getElementById('gmail-scan-btn');
+  gmailBtn.style.display = (isAuthenticated() && window.google && google.accounts && google.accounts.oauth2) ? '' : 'none';
+
   const banner = document.getElementById('trip-candidates-banner');
   const panel = document.getElementById('trip-candidates-panel');
   if (!tripCandidates.length) {
@@ -3379,6 +3398,201 @@ document.getElementById('candidate-merge-form').addEventListener('submit', async
     showToast(err.message);
   }
 });
+
+// ============================================================================
+// Gmail-opdagelse (prioritet 7) — "Søg efter rejser i Gmail"
+//
+// Kører HELT i browseren, uden server: Google Identity Services beder om en
+// kortlivet adgangstoken (kun til denne ene handling — intet refresh-token
+// gemmes nogen steder), og JS her kalder Gmail API direkte og skriver
+// forslag ind i trip_candidates via den allerede eksisterende, login-gated
+// skrive-adgang. Se docs/RUNNING.md §9 for Google Cloud-opsætningen bag
+// dette (OAuth-klient, samtykkeskærm, gmail.readonly-scope), som Christian
+// selv gennemførte, da det krævede adgang til hans Google-konto.
+//
+// Bevidst LAV præcision, høj gennemsigtighed: vi gætter IKKE på land/by med
+// avanceret sprogforståelse — kun en simpel opslagsliste af landenavne i
+// email-tekst — og lader hellere Christian rette det via "Redigér og
+// godkend" end at risikere et forkert, overbevisende gæt. Hver kandidat
+// bærer sin egen evidens (emne + dato pr. mail), så det ALTID er til at
+// gennemskue, hvorfor noget blev foreslået.
+// ============================================================================
+
+const GOOGLE_OAUTH_CLIENT_ID = '562868789745-45pkpo0h5163te0ceh8j6ngvcuv8reem.apps.googleusercontent.com';
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+
+// Simpelt, ikke-udtømmende opslag af rejsemål — engelske og danske stavemåder.
+// Danmark er bevidst UDELADT: en rejse er "et ophold uden for Danmark", så et
+// dansk sted i en mail er ikke et rejse-signal.
+const COUNTRY_LOOKUP = [
+  'Sverige','Sweden','Norge','Norway','Tyskland','Germany','Frankrig','France','Spanien','Spain',
+  'Italien','Italy','Portugal','Grækenland','Greece','Holland','Netherlands','Belgien','Belgium',
+  'Østrig','Austria','Schweiz','Switzerland','Polen','Poland','Tjekkiet','Czechia','Czech Republic',
+  'Ungarn','Hungary','Kroatien','Croatia','Island','Iceland','Irland','Ireland','Storbritannien',
+  'United Kingdom','England','Skotland','Scotland','Wales','Finland','Estland','Estonia','Letland',
+  'Latvia','Litauen','Lithuania','Rumænien','Romania','Bulgarien','Bulgaria','Slovenien','Slovenia',
+  'Slovakiet','Slovakia','Tyrkiet','Turkey','Marokko','Morocco','Egypten','Egypt','Sydafrika',
+  'South Africa','USA','United States','Canada','Mexico','Brasilien','Brazil','Argentina','Japan',
+  'Kina','China','Sydkorea','South Korea','Thailand','Vietnam','Indonesien','Indonesia','Indien',
+  'India','Sri Lanka','Nepal','Bhutan','Australien','Australia','New Zealand','Sydney','Dubai',
+  'De Forenede Arabiske Emirater','United Arab Emirates','Israel','Jordan','Cypern','Cyprus',
+  'Malta','Færøerne','Faroe Islands','Grønland','Greenland',
+];
+
+let gmailAccessToken = null;
+let gmailTokenClient = null;
+
+function getGmailTokenClient() {
+  if (gmailTokenClient) return gmailTokenClient;
+  gmailTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_OAUTH_CLIENT_ID,
+    scope: GMAIL_SCOPE,
+    callback: () => {}, // overstyres pr. kald, se requestGmailAccessToken
+  });
+  return gmailTokenClient;
+}
+
+function requestGmailAccessToken() {
+  return new Promise((resolve, reject) => {
+    const client = getGmailTokenClient();
+    client.callback = (resp) => {
+      if (resp.error) return reject(new Error(resp.error));
+      resolve(resp.access_token);
+    };
+    client.requestAccessToken({ prompt: gmailAccessToken ? '' : 'consent' });
+  });
+}
+
+async function gmailApiGet(path, token) {
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Gmail API-fejl (${res.status}) — prøv evt. at logge ind på Google igen`);
+  return res.json();
+}
+
+function headerValue(headers, name) {
+  const h = (headers || []).find((x) => x.name.toLowerCase() === name.toLowerCase());
+  return h ? h.value : '';
+}
+
+function guessCountryFromText(text) {
+  const norm = ` ${text.toLowerCase()} `;
+  for (const country of COUNTRY_LOOKUP) {
+    if (norm.includes(` ${country.toLowerCase()} `) || norm.includes(`${country.toLowerCase()},`)) return country;
+  }
+  return null;
+}
+
+const TRAVEL_SENDER_HINTS = ['ryanair','easyjet','norwegian','sas.','klm','lufthansa','airfrance','united.com','delta.com',
+  'aircanada','emirates','turkishairlines','dsb.dk','flixbus','booking.com','airbnb','hotels.com','expedia','trivago','eurail'];
+const TRAVEL_SUBJECT_HINTS = ['boarding','boardingkort','e-billet','e-ticket','reservation','bekræftelse','confirmation',
+  'booking','itinerary','rejseplan','check-in','indtjekning'];
+
+function guessConfidence(fromHeader, subject) {
+  const from = (fromHeader || '').toLowerCase();
+  const subj = (subject || '').toLowerCase();
+  if (TRAVEL_SENDER_HINTS.some((h) => from.includes(h))) return 'medium';
+  if (TRAVEL_SUBJECT_HINTS.some((h) => subj.includes(h))) return 'medium';
+  return 'low';
+}
+
+// Grupperer mails, der ligger tæt på hinanden i tid (typisk billet + hotel +
+// check-in til SAMME rejse), til én kandidat i stedet for én pr. mail.
+function clusterByDate(messages, maxGapDays = 14) {
+  const sorted = messages.slice().sort((a, b) => a.date - b.date);
+  const clusters = [];
+  let current = [];
+  for (const m of sorted) {
+    if (current.length && (m.date - current[current.length - 1].date) / 86400000 > maxGapDays) {
+      clusters.push(current);
+      current = [];
+    }
+    current.push(m);
+  }
+  if (current.length) clusters.push(current);
+  return clusters;
+}
+
+async function runGmailScan() {
+  const btn = document.getElementById('gmail-scan-btn');
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Søger…';
+  try {
+    const token = await requestGmailAccessToken();
+    gmailAccessToken = token;
+
+    // Kendte kilde-referencer (Gmail message-id'er) på tværs af ALLE
+    // kandidater, uanset status — en allerede afvist/godkendt mail skal
+    // ikke dukke op igen, se tripCandidatesApi.allSourceRefs.
+    const existing = await tripCandidatesApi.allSourceRefs();
+    const seenIds = new Set(existing.flatMap((c) => (c.source_ref || '').split(',').filter(Boolean)));
+
+    const listResult = await gmailApiGet(`messages?${qs({ q: 'category:travel', maxResults: 30 })}`, token);
+    const candidates = (listResult.messages || []).filter((m) => !seenIds.has(m.id));
+
+    if (!candidates.length) {
+      showToast('Ingen nye rejserelaterede mails fundet i Gmail.');
+      return;
+    }
+
+    const details = [];
+    for (const m of candidates) {
+      const full = await gmailApiGet(`messages/${m.id}?${qs({ format: 'metadata', metadataHeaders: 'Subject' })}&metadataHeaders=From&metadataHeaders=Date`, token);
+      const subject = headerValue(full.payload.headers, 'Subject');
+      const from = headerValue(full.payload.headers, 'From');
+      details.push({
+        id: m.id,
+        subject,
+        from,
+        snippet: full.snippet || '',
+        date: new Date(Number(full.internalDate)),
+      });
+    }
+
+    const clusters = clusterByDate(details);
+    const newCandidates = clusters.map((cluster) => {
+      const combinedText = cluster.map((m) => `${m.subject} ${m.snippet}`).join(' ');
+      const country = guessCountryFromText(combinedText);
+      const strongest = cluster.reduce((best, m) => {
+        const c = guessConfidence(m.from, m.subject);
+        return (!best || (c === 'medium' && best.confidence === 'low')) ? { ...m, confidence: c } : best;
+      }, null);
+      const firstDate = cluster[0].date;
+      return {
+        status: 'pending',
+        suggested_title: cluster[0].subject || null,
+        suggested_country: country,
+        suggested_cities: [],
+        suggested_year: firstDate.getFullYear(),
+        suggested_month: firstDate.getMonth() + 1,
+        confidence: strongest ? strongest.confidence : 'low',
+        evidence: cluster.map((m) => ({
+          type: 'email',
+          summary: m.subject || '(uden emne)',
+          date: m.date.toISOString().slice(0, 10),
+          link: `https://mail.google.com/mail/u/0/#all/${m.id}`,
+        })),
+        source: 'gmail',
+        source_ref: cluster.map((m) => m.id).join(','),
+      };
+    });
+
+    for (const c of newCandidates) {
+      await tripCandidatesApi.create(c);
+    }
+    showToast(`Fandt ${newCandidates.length} ny${newCandidates.length === 1 ? '' : 'e'} rejsekandidat${newCandidates.length === 1 ? '' : 'er'} i Gmail.`);
+    await loadTripCandidates();
+  } catch (err) {
+    showToast('Gmail-søgning fejlede: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+document.getElementById('gmail-scan-btn').addEventListener('click', runGmailScan);
 
 // ============================================================================
 // Faneblade
