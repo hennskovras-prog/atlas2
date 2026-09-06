@@ -167,6 +167,30 @@
   .stop-row input{ flex:1; }
   .stop-row button{ flex:0 0 auto; padding:0 12px; border-radius: var(--radius-sm); border:1px solid var(--border); background:var(--bg-elevated); color:var(--danger); cursor:pointer; }
 
+  /* Rejse-kandidater til gennemgang (review/import-arkitektur, se
+     migrations/006_trip_candidates.sql) — samme kort/badge-sprog som resten
+     af Atlas, ikke en ny visuel stil. */
+  .badge.low{ background:#F0E4E4; color:var(--danger); }
+  #trip-candidates-banner{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background: var(--badge-dream-bg); color: var(--badge-dream-text);
+    border-radius: var(--radius-sm); padding:10px 14px; margin-bottom:14px; font-size:0.88rem;
+  }
+  #trip-candidates-banner button{ flex:0 0 auto; }
+  .candidate-card{
+    background: var(--bg-elevated); border:1px solid var(--border); border-radius: var(--radius);
+    padding:14px 16px; margin-bottom:12px;
+  }
+  .candidate-card .candidate-head{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+  .candidate-card .candidate-title{ font-weight:700; font-size:0.98rem; }
+  .candidate-card .candidate-meta{ color:var(--text-muted); font-size:0.85rem; margin-bottom:8px; }
+  .candidate-card .candidate-dup{ background: var(--badge-warn-bg); color: var(--badge-warn-text); border-radius: var(--radius-sm); padding:6px 10px; font-size:0.82rem; margin-bottom:8px; }
+  .candidate-evidence{ list-style:none; padding:0; margin:0 0 10px 0; display:flex; flex-direction:column; gap:4px; }
+  .candidate-evidence li{ font-size:0.82rem; color:var(--text-muted); background:var(--bg); border-radius:6px; padding:6px 9px; }
+  .candidate-evidence li a{ color:var(--accent); }
+  .candidate-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .candidate-actions .btn{ padding:5px 12px; font-size:0.82rem; }
+
   .empty-state{ text-align:center; padding: 60px 20px; color: var(--text-muted); }
   .empty-state .icon{ font-size: 3rem; margin-bottom: 10px; }
 
@@ -358,6 +382,15 @@
   </div>
 
   <div id="view-rejser" style="display:none;">
+    <!-- Kandidater til gennemgang — kun synlig når der rent faktisk er nogen,
+         så den ikke roder i UI'et resten af tiden (se docs/RUNNING.md §8:
+         "uden at gøre designet rodet"). Fyldes af en fremtidig opdagelses-
+         mekanisme (Gmail/Google Photos, prioritet 7) — ALDRIG automatisk til
+         en rigtig rejse; kun Christians eget Godkend/Afvis/Flet-klik her gør
+         det. -->
+    <div id="trip-candidates-banner" style="display:none;"></div>
+    <div id="trip-candidates-panel" style="display:none;"></div>
+
     <div class="toolbar">
       <div class="view-toggle" id="trips-view-toggle">
         <button type="button" class="view-toggle-btn active" data-view="oversigt">Oversigt</button>
@@ -757,6 +790,29 @@
   </div>
 </div>
 
+<!-- Rejse-kandidat: flet med eksisterende rejse -->
+<div class="modal-backdrop" id="candidate-merge-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Flet kandidat med eksisterende rejse</h2>
+      <button class="modal-close" data-close="candidate-merge-backdrop">✕</button>
+    </div>
+    <form id="candidate-merge-form">
+      <input type="hidden" id="cm-candidate-id">
+      <div class="field">
+        <label for="cm-trip-select">Eksisterende rejse *</label>
+        <select id="cm-trip-select" required></select>
+      </div>
+      <p class="sub" style="margin:-6px 0 10px; color:var(--text-muted); font-size:0.8rem;">Kandidatens evidens knyttes til den valgte rejse. Har rejsen ikke allerede et Google Photos-link, og kandidaten foreslår et, tilføjes det automatisk.</p>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="candidate-merge-backdrop">Annullér</button>
+        <button type="submit" class="btn">Flet</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Login-modal (Supabase Auth: email + password) -->
 <div class="modal-backdrop" id="login-backdrop">
   <div class="modal" style="max-width:360px;">
@@ -866,6 +922,14 @@ async function login(email, password) {
   };
   saveSessionToStorage(session);
   renderAuthControl();
+  // Rejse-kandidater kræver login (authenticated-only RLS, se
+  // tripCandidatesApi) og indlæses derfor ikke ved første fanebladsskift,
+  // hvis man dengang ikke var logget ind — hentes derfor her i login()
+  // selv (ikke kun i login-knappens klik-handler), så det virker uanset
+  // hvordan/hvorfra login() kaldes.
+  if (typeof loadTripCandidates === 'function' && document.getElementById('view-rejser').style.display !== 'none') {
+    loadTripCandidates();
+  }
 }
 
 async function logout() {
@@ -880,6 +944,8 @@ async function logout() {
   session = null;
   saveSessionToStorage(null);
   renderAuthControl();
+  tripCandidates = [];
+  if (typeof renderTripCandidates === 'function') renderTripCandidates(); // kandidat-panelet kræver login, se tripCandidatesApi
 }
 
 /** Genopfrisker access_token via refresh_token, hvis den er ved at udløbe. */
@@ -1314,6 +1380,10 @@ function closeModal(id) {
   // Kameraet skal ALTID frigives, uanset hvordan scanner-modalen lukkes
   // (Luk-knap, ✕, klik udenfor, eller fordi en stregkode blev fundet).
   if (id === 'barcode-backdrop') stopBarcodeCamera();
+  // Ryd "godkend kandidat"-tilstanden, uanset hvordan rejse-formularen lukkes
+  // (gem, Annullér, ✕, klik udenfor) — ellers ville et senere "+ Tilføj
+  // rejse" fejlagtigt tro, det stadig gælder en kandidat-godkendelse.
+  if (id === 'trip-form-backdrop') approvingCandidateId = null;
 }
 
 // Se note ved .modal-backdrop i <style>: holder --app-vh i sync med den
@@ -3005,9 +3075,16 @@ function collectStopValues() {
 document.getElementById('tf-add-stop-btn').addEventListener('click', () => addStopRow(''));
 
 function openTripForm(trip) {
+  // 'trip' kan enten være en RIGTIG (gemt) rejse, eller et løst forslags-
+  // objekt uden id — bruges af "Redigér og godkend" på en rejsekandidat
+  // (se editApproveCandidate) til at genbruge PRÆCIS den samme formular,
+  // fremfor at bygge en ny. Derfor tjekkes trip.id eksplicit, ikke bare
+  // trip's sandhedsværdi, så et kandidat-objekt uden id korrekt behandles
+  // som "opret ny" (ingen slet-knap, intet skjult id at opdatere).
   if (!requireAuthOrPrompt()) return;
-  document.getElementById('tf-id').value = trip ? trip.id : '';
-  document.getElementById('trip-form-title').textContent = trip ? 'Redigér rejse' : 'Tilføj rejse';
+  const id = trip && trip.id;
+  document.getElementById('tf-id').value = id || '';
+  document.getElementById('trip-form-title').textContent = id ? 'Redigér rejse' : 'Tilføj rejse';
   document.getElementById('tf-title').value = (trip && trip.title) || '';
   document.getElementById('tf-country').value = (trip && trip.country) || '';
   document.getElementById('tf-status').value = (trip && trip.status) || 'completed';
@@ -3017,7 +3094,7 @@ function openTripForm(trip) {
   document.getElementById('tf-year').value = (trip && trip.year) || '';
   document.getElementById('tf-photos-url').value = (trip && trip.google_photos_url) || '';
   document.getElementById('tf-notes').value = (trip && trip.notes) || '';
-  document.getElementById('trip-form-delete-btn').style.display = trip ? '' : 'none';
+  document.getElementById('trip-form-delete-btn').style.display = id ? '' : 'none';
   renderStopRows(trip ? tripStopsSorted(trip).map((s) => s.city) : []);
   openModal('trip-form-backdrop');
   document.getElementById('tf-country').focus();
@@ -3039,12 +3116,17 @@ document.getElementById('trip-form').addEventListener('submit', async (e) => {
     google_photos_url: document.getElementById('tf-photos-url').value.trim() || null,
     notes: document.getElementById('tf-notes').value.trim() || null,
   };
+  const candidateId = approvingCandidateId; // se editApproveCandidate/closeModal
   try {
     const saved = id ? await tripsApi.update(id, payload) : await tripsApi.create(payload);
     await tripsApi.replaceStops(saved.id, stops);
+    if (candidateId) {
+      await tripCandidatesApi.update(candidateId, { status: 'approved', linked_trip_id: saved.id, reviewed_at: new Date().toISOString() });
+    }
     closeModal('trip-form-backdrop');
-    showToast(id ? 'Rejse opdateret.' : 'Rejse tilføjet.');
+    showToast(id ? 'Rejse opdateret.' : (candidateId ? 'Rejse oprettet fra kandidat.' : 'Rejse tilføjet.'));
     await loadTrips();
+    if (candidateId) await loadTripCandidates();
   } catch (err) {
     showToast(err.message);
   }
@@ -3059,6 +3141,240 @@ document.getElementById('trip-form-delete-btn').addEventListener('click', async 
     closeModal('trip-form-backdrop');
     showToast('Rejse slettet.');
     await loadTrips();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// ============================================================================
+// Rejse-kandidater — review/import-arkitektur (prioritet 6). En kandidat
+// bliver ALDRIG automatisk til en rigtig rejse; kun Christians eget klik her
+// (Godkend / Redigér og godkend / Flet / Afvis) gør det, se
+// migrations/006_trip_candidates.sql. Selve OPDAGELSEN (Gmail/Google Photos,
+// som rent faktisk OPRETTER kandidater) er prioritet 7 og kræver Google
+// OAuth-opsætning — se docs/RUNNING.md §9 for status og næste skridt der.
+//
+// trip_candidates har (bevidst) authenticated-only RLS, modsat resten af
+// Atlas' public-read — se begrundelsen i migrationsfilen: evidensen er
+// uddrag af private e-mails/album, før Christian har taget stilling. Derfor
+// tjekkes isAuthenticated() FØR der overhovedet forsøges hentet, og en fejl
+// (fx endnu ikke logget ind) fejler stille i stedet for en toast — kandidat-
+// panelet er et ekstra lag oven på Rejser, ikke kernefunktionen.
+// ============================================================================
+
+const tripCandidatesApi = {
+  list: () => pgrest('GET', '/trip_candidates?' + qs({ select: '*', status: 'eq.pending', order: 'created_at.asc' })),
+  update: (id, fields) => pgrest('PATCH', '/trip_candidates?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+};
+
+let tripCandidates = [];
+let tripCandidatesPanelOpen = false;
+let approvingCandidateId = null; // sat mens "Redigér og godkend" har rejse-formularen åben
+
+async function loadTripCandidates() {
+  if (!isAuthenticated()) {
+    tripCandidates = [];
+    renderTripCandidates();
+    return;
+  }
+  try {
+    tripCandidates = await tripCandidatesApi.list();
+  } catch (err) {
+    tripCandidates = [];
+  }
+  renderTripCandidates();
+}
+
+// Samme grundprincip som findDuplicateBook (se dedup-koden ved Bøger): en
+// "blød" advarsel, ikke en spærre. Match på land + samme år ELLER
+// overlappende datoperiode — beregnes her live af de allerede indlæste
+// rejser, så det virker uanset om selve opdagelsesmekanismen selv har sat
+// possible_duplicate_trip_id (som bruges som fallback nedenfor).
+function findDuplicateTrip(candidate) {
+  const country = normalizeText(candidate.suggested_country);
+  if (!country) return null;
+  const candYear = candidate.suggested_year || (candidate.suggested_start_date ? Number(candidate.suggested_start_date.slice(0, 4)) : null);
+  for (const t of trips) {
+    if (normalizeText(t.country) !== country) continue;
+    if (candidate.suggested_start_date && candidate.suggested_end_date && t.start_date && t.end_date) {
+      if (candidate.suggested_start_date <= t.end_date && t.start_date <= candidate.suggested_end_date) return t;
+    }
+    const tYear = tripEffectiveYear(t);
+    if (candYear && tYear && candYear === tYear) return t;
+  }
+  return null;
+}
+
+function candidateDuplicateTrip(c) {
+  return findDuplicateTrip(c) || (c.possible_duplicate_trip_id ? trips.find((t) => t.id === c.possible_duplicate_trip_id) : null);
+}
+
+// Kandidater bærer bevis for en FAKTISK rejse (billet, booking, album) — det
+// er derfor aldrig en 'wishlist'-idé, kun completed/planned, ud fra om den
+// kendte dato (eller i sidste ende blot året) allerede er passeret.
+function candidateDefaultStatus(c) {
+  const refDate = c.suggested_end_date || c.suggested_start_date;
+  if (refDate) return refDate < todayIso() ? 'completed' : 'planned';
+  if (c.suggested_year) return c.suggested_year < new Date().getFullYear() ? 'completed' : 'planned';
+  return 'planned';
+}
+
+function candidateDateLabel(c) {
+  if (c.suggested_start_date && c.suggested_end_date) return `${formatDateDa(c.suggested_start_date)} – ${formatDateDa(c.suggested_end_date)}`;
+  if (c.suggested_start_date) return `Fra ${formatDateDa(c.suggested_start_date)}`;
+  if (c.suggested_year && c.suggested_month) return `${TRIP_MONTHS[c.suggested_month - 1]} ${c.suggested_year}`;
+  if (c.suggested_year) return `${c.suggested_year}`;
+  return 'Ukendt dato';
+}
+
+const CANDIDATE_CONFIDENCE_LABEL = { high: 'Høj sikkerhed', medium: 'Mellem sikkerhed', low: 'Lav sikkerhed' };
+const CANDIDATE_CONFIDENCE_BADGE = { high: 'ok', medium: 'warn', low: 'low' };
+
+function candidateCardHTML(c) {
+  const confidenceBadge = c.confidence
+    ? `<span class="badge ${CANDIDATE_CONFIDENCE_BADGE[c.confidence]}">${CANDIDATE_CONFIDENCE_LABEL[c.confidence]}</span>` : '';
+  const cities = (c.suggested_cities || []).join(', ');
+  const dup = candidateDuplicateTrip(c);
+  const evidenceHtml = (c.evidence || []).map((ev) => {
+    const label = escapeHtml(ev.summary || ev.type || 'Bevis');
+    const inner = ev.link ? `<a href="${escapeHtml(ev.link)}" target="_blank" rel="noopener">${label}</a>` : label;
+    return `<li>${inner}${ev.date ? ' · ' + escapeHtml(ev.date) : ''}</li>`;
+  }).join('');
+  return `
+    <div class="candidate-card" data-id="${c.id}">
+      <div class="candidate-head">
+        <span class="candidate-title">${escapeHtml(c.suggested_title || c.suggested_country || 'Ukendt rejse')}</span>
+        ${confidenceBadge}
+      </div>
+      <div class="candidate-meta">${escapeHtml(c.suggested_country || 'Ukendt land')}${cities ? ' · ' + escapeHtml(cities) : ''} · ${escapeHtml(candidateDateLabel(c))}${c.source ? ' · kilde: ' + escapeHtml(c.source) : ''}</div>
+      ${dup ? `<div class="candidate-dup">⚠️ Ligner måske en allerede registreret rejse: "${escapeHtml(dup.title || dup.country)}" (${escapeHtml(tripDateLabel(dup))}) — overvej "Flet" i stedet for "Godkend".</div>` : ''}
+      ${evidenceHtml ? `<ul class="candidate-evidence">${evidenceHtml}</ul>` : ''}
+      <div class="candidate-actions">
+        <button type="button" class="btn" data-action="cand-approve" data-id="${c.id}">Godkend</button>
+        <button type="button" class="btn secondary" data-action="cand-edit-approve" data-id="${c.id}">Redigér og godkend</button>
+        <button type="button" class="btn secondary" data-action="cand-merge" data-id="${c.id}">Flet med eksisterende</button>
+        <button type="button" class="btn danger" data-action="cand-reject" data-id="${c.id}">Afvis</button>
+      </div>
+    </div>`;
+}
+
+function renderTripCandidates() {
+  const banner = document.getElementById('trip-candidates-banner');
+  const panel = document.getElementById('trip-candidates-panel');
+  if (!tripCandidates.length) {
+    banner.style.display = 'none';
+    panel.style.display = 'none';
+    return;
+  }
+  banner.style.display = 'flex';
+  banner.innerHTML = `<span>✈️ ${tripCandidates.length} rejsekandidat${tripCandidates.length === 1 ? '' : 'er'} venter på gennemgang</span>` +
+    `<button type="button" class="btn secondary" style="padding:5px 12px;">${tripCandidatesPanelOpen ? 'Skjul' : 'Gennemgå'}</button>`;
+  panel.style.display = tripCandidatesPanelOpen ? '' : 'none';
+  if (tripCandidatesPanelOpen) panel.innerHTML = tripCandidates.map(candidateCardHTML).join('');
+}
+
+document.getElementById('trip-candidates-banner').addEventListener('click', () => {
+  tripCandidatesPanelOpen = !tripCandidatesPanelOpen;
+  renderTripCandidates();
+});
+
+document.getElementById('trip-candidates-panel').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  if (btn.dataset.action === 'cand-approve') approveCandidate(id);
+  if (btn.dataset.action === 'cand-edit-approve') editApproveCandidate(id);
+  if (btn.dataset.action === 'cand-reject') rejectCandidate(id);
+  if (btn.dataset.action === 'cand-merge') openCandidateMerge(id);
+});
+
+async function approveCandidate(id) {
+  const c = tripCandidates.find((x) => x.id === id);
+  if (!c) return;
+  if (!confirm(`Godkend og opret rejsen "${c.suggested_title || c.suggested_country}"?`)) return;
+  try {
+    const trip = await tripsApi.create({
+      title: c.suggested_title || null,
+      country: c.suggested_country,
+      status: candidateDefaultStatus(c),
+      start_date: c.suggested_start_date || null,
+      end_date: c.suggested_end_date || null,
+      month: c.suggested_month || null,
+      year: c.suggested_year || null,
+      google_photos_url: c.suggested_google_photos_url || null,
+      source: c.source ? `kandidat: ${c.source}` : 'kandidat',
+    });
+    await tripsApi.replaceStops(trip.id, c.suggested_cities || []);
+    await tripCandidatesApi.update(id, { status: 'approved', linked_trip_id: trip.id, reviewed_at: new Date().toISOString() });
+    showToast('Rejse oprettet fra kandidat.');
+    await loadTrips();
+    await loadTripCandidates();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+// Genbruger den eksisterende rejse-formular (openTripForm) 1:1 ved at give
+// den et løst forslags-objekt uden id — se kommentaren i openTripForm.
+// Selve godkendelsen (opdatering af trip_candidates) sker i trip-form's
+// submit-handler, styret af approvingCandidateId.
+function editApproveCandidate(id) {
+  const c = tripCandidates.find((x) => x.id === id);
+  if (!c) return;
+  approvingCandidateId = id;
+  openTripForm({
+    title: c.suggested_title,
+    country: c.suggested_country,
+    status: candidateDefaultStatus(c),
+    start_date: c.suggested_start_date,
+    end_date: c.suggested_end_date,
+    month: c.suggested_month,
+    year: c.suggested_year,
+    google_photos_url: c.suggested_google_photos_url,
+    trip_stops: (c.suggested_cities || []).map((city, i) => ({ city, sort_order: i })),
+  });
+  document.getElementById('trip-form-title').textContent = 'Godkend rejsekandidat';
+}
+
+async function rejectCandidate(id) {
+  if (!confirm('Afvis denne rejsekandidat? Den slettes ikke, så samme e-mail/album ikke automatisk foreslås igen — men forsvinder fra listen her.')) return;
+  try {
+    await tripCandidatesApi.update(id, { status: 'rejected', reviewed_at: new Date().toISOString() });
+    showToast('Kandidat afvist.');
+    await loadTripCandidates();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function openCandidateMerge(id) {
+  const c = tripCandidates.find((x) => x.id === id);
+  if (!c) return;
+  document.getElementById('cm-candidate-id').value = id;
+  const sorted = trips.slice().sort((a, b) => (tripEffectiveYear(b) || 0) - (tripEffectiveYear(a) || 0));
+  const sel = document.getElementById('cm-trip-select');
+  sel.innerHTML = sorted.map((t) => `<option value="${t.id}">${escapeHtml(t.title || t.country)} — ${escapeHtml(tripDateLabel(t))}</option>`).join('');
+  const dup = candidateDuplicateTrip(c);
+  if (dup) sel.value = String(dup.id);
+  openModal('candidate-merge-backdrop');
+}
+
+document.getElementById('candidate-merge-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const candidateId = Number(document.getElementById('cm-candidate-id').value);
+  const tripId = Number(document.getElementById('cm-trip-select').value);
+  const c = tripCandidates.find((x) => x.id === candidateId);
+  const trip = trips.find((t) => t.id === tripId);
+  if (!c || !trip) return;
+  try {
+    if (c.suggested_google_photos_url && !trip.google_photos_url) {
+      await tripsApi.update(tripId, { google_photos_url: c.suggested_google_photos_url });
+    }
+    await tripCandidatesApi.update(candidateId, { status: 'merged', linked_trip_id: tripId, reviewed_at: new Date().toISOString() });
+    closeModal('candidate-merge-backdrop');
+    showToast(`Kandidat flettet ind i "${trip.title || trip.country}".`);
+    await loadTrips();
+    await loadTripCandidates();
   } catch (err) {
     showToast(err.message);
   }
@@ -3081,7 +3397,10 @@ function switchTab(tab) {
   if (tab === 'comics' && !comicsLoadedOnce) loadComicYears();
   if ((tab === 'tintin' || tab === 'farside') && !seriesLoadedOnce[tab]) loadSeriesAlbums(tab);
   if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
-  if (tab === 'rejser' && !tripsLoadedOnce) loadTrips();
+  if (tab === 'rejser') {
+    if (!tripsLoadedOnce) loadTrips();
+    loadTripCandidates(); // stille no-op hvis ikke logget ind — se kommentar ved tripCandidatesApi
+  }
 }
 document.querySelectorAll('.tab-btn[data-tab]').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
