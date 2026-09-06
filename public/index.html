@@ -81,6 +81,20 @@
   nav.tabs button:disabled{ color: #C9BFB2; cursor: default; }
   nav.tabs .soon{ font-size: 0.7em; font-weight: 400; }
 
+  /* Undernav for "Tegneserier"-overkategorien (Jumbo-bøger/Anders And/Tintin/
+     Far Side) — samme mønster som nav.tabs, men mindre og kun synlig når en
+     af de fire er den aktive fane. */
+  nav.subtabs{
+    display:flex; gap: 4px; overflow-x:auto; padding-bottom: 8px; margin-top: -4px;
+    scrollbar-width: none;
+  }
+  nav.subtabs::-webkit-scrollbar{ display:none; }
+  nav.subtabs button{
+    background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 6px 12px; color: var(--text-muted); font-weight: 500; font-size: 0.85rem; white-space: nowrap;
+  }
+  nav.subtabs button.active{ color: var(--accent); border-bottom-color: var(--accent); }
+
   /* ---- Toolbar ---- */
   .toolbar{
     display:flex; flex-wrap:wrap; gap: 10px; align-items:center;
@@ -305,13 +319,18 @@
   </div>
   <nav class="tabs" id="tabs">
     <button class="tab-btn active" data-tab="boeger">Bøger</button>
+    <button class="tab-btn" id="tegneserier-tab-btn">Tegneserier</button>
+    <button class="tab-btn" data-tab="plader">Plader</button>
+    <!-- Film sat på pause indtil vi har en plan for modulet. Fjern
+         kommentarerne for at genaktivere placeholder-fanen. -->
+    <!-- <button class="tab-btn" disabled>Film <span class="soon">snart</span></button> -->
+    <button class="tab-btn" data-tab="rejser">Rejser</button>
+  </nav>
+  <nav class="subtabs" id="subtabs-tegneserier" style="display:none;">
     <button class="tab-btn" data-tab="jumbo">Jumbo-bøger</button>
     <button class="tab-btn" data-tab="comics">Anders And</button>
     <button class="tab-btn" data-tab="tintin">Tintin</button>
     <button class="tab-btn" data-tab="farside">Far Side</button>
-    <button class="tab-btn" data-tab="plader">Plader</button>
-    <button class="tab-btn" disabled>Film <span class="soon">snart</span></button>
-    <button class="tab-btn" data-tab="rejser">Rejser</button>
   </nav>
 </header>
 
@@ -3598,8 +3617,19 @@ document.getElementById('gmail-scan-btn').addEventListener('click', runGmailScan
 // Faneblade
 // ============================================================================
 
+// Jumbo-bøger, Anders And, Tintin og Far Side er samlet under
+// overkategorien "Tegneserier" i topnavigationen (ét klik på "Tegneserier"
+// åbner et undernav med disse fire, se markup i <header>). De er stadig
+// fire helt separate faner/views/data-sæt herunder — kun topnavets
+// gruppering er ny.
+const COMIC_TABS = ['jumbo', 'comics', 'tintin', 'farside'];
+let lastComicTab = 'jumbo';
+
 function switchTab(tab) {
+  if (COMIC_TABS.includes(tab)) lastComicTab = tab;
   document.querySelectorAll('.tab-btn[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('tegneserier-tab-btn').classList.toggle('active', COMIC_TABS.includes(tab));
+  document.getElementById('subtabs-tegneserier').style.display = COMIC_TABS.includes(tab) ? '' : 'none';
   document.getElementById('view-boeger').style.display = tab === 'boeger' ? '' : 'none';
   document.getElementById('view-jumbo').style.display = tab === 'jumbo' ? '' : 'none';
   document.getElementById('view-comics').style.display = tab === 'comics' ? '' : 'none';
@@ -3619,6 +3649,7 @@ function switchTab(tab) {
 document.querySelectorAll('.tab-btn[data-tab]').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
+document.getElementById('tegneserier-tab-btn').addEventListener('click', () => switchTab(lastComicTab));
 
 // ============================================================================
 // Toolbar-bindinger
