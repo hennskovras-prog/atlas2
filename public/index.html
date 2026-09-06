@@ -31,6 +31,8 @@
     --badge-warn-text: #8A5A20;
     --badge-ok-bg: #DEEBE2;
     --badge-ok-text: #2E6B48;
+    --badge-dream-bg: #E6E1F5;
+    --badge-dream-text: #5B4B9E;
     --danger: #B23A3A;
   }
 
@@ -133,6 +135,38 @@
   .card .quick-verify{ margin-left:auto; display:flex; align-items:center; gap:4px; font-size:0.72rem; color:var(--text-muted); }
   .card .quick-verify input{ margin:0; }
 
+  /* ============ Rejser ============ */
+  .view-toggle{ display:flex; border:1px solid var(--border); border-radius: var(--radius-sm); overflow:hidden; }
+  .view-toggle-btn{ padding:9px 16px; border:none; background:var(--bg-elevated); color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:600; }
+  .view-toggle-btn.active{ background:var(--accent); color:#fff; }
+  .badge.dream{ background:var(--badge-dream-bg); color:var(--badge-dream-text); }
+  .year-group{ margin-bottom: 28px; }
+  .year-group h3{ font-size:1.15rem; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:6px; margin:0 0 14px 0; }
+  .trip-card{
+    background: var(--bg-elevated); border-radius: var(--radius); box-shadow: var(--card-shadow);
+    padding:14px 16px; cursor:pointer; display:flex; flex-direction:column; gap:4px;
+  }
+  .trip-card:hover{ box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+  .trip-card .trip-title{ font-weight:700; font-size:0.95rem; }
+  .trip-card .trip-meta{ color: var(--text-muted); font-size:0.82rem; }
+  .trip-card .trip-badges{ margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .trip-card .trip-badges .btn{ padding:3px 9px; font-size:0.72rem; }
+  .wishlist-section{ margin-top: 12px; border-top: 2px dashed var(--border); padding-top: 20px; }
+  .wishlist-section h3{ font-size:1.15rem; color:var(--text-muted); margin:0 0 2px 0; }
+  .wishlist-section .hint{ color:var(--text-muted); font-size:0.85rem; margin:0 0 14px 0; }
+  .wishlist-section .trip-card{ border:1px dashed var(--border); box-shadow:none; }
+  .wishlist-section .trip-card:hover{ box-shadow: var(--card-shadow); transform:none; }
+  .trip-table-wrap{ overflow-x:auto; }
+  .trip-table{ width:100%; border-collapse:collapse; font-size:0.88rem; }
+  .trip-table th{ text-align:left; padding:9px 10px; border-bottom:2px solid var(--border); color:var(--text-muted); cursor:pointer; user-select:none; white-space:nowrap; }
+  .trip-table th.sorted{ color: var(--accent); }
+  .trip-table td{ padding:9px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .trip-table tbody tr{ cursor:pointer; }
+  .trip-table tbody tr:hover{ background: var(--bg); }
+  .stop-row{ display:flex; gap:6px; margin-bottom:6px; }
+  .stop-row input{ flex:1; }
+  .stop-row button{ flex:0 0 auto; padding:0 12px; border-radius: var(--radius-sm); border:1px solid var(--border); background:var(--bg-elevated); color:var(--danger); cursor:pointer; }
+
   .empty-state{ text-align:center; padding: 60px 20px; color: var(--text-muted); }
   .empty-state .icon{ font-size: 3rem; margin-bottom: 10px; }
 
@@ -179,7 +213,7 @@
 
   .field{ margin-bottom: 12px; }
   .field label{ display:block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px; font-weight:600; }
-  .field input[type="text"], .field input[type="number"], .field select, .field textarea{
+  .field input[type="text"], .field input[type="number"], .field input[type="date"], .field input[type="url"], .field select, .field textarea{
     width:100%; padding: 9px 12px; border-radius: var(--radius-sm); border:1px solid var(--border);
     background: var(--bg); color: var(--text);
   }
@@ -247,7 +281,7 @@
     <button class="tab-btn" data-tab="farside">Far Side</button>
     <button class="tab-btn" data-tab="plader">Plader</button>
     <button class="tab-btn" disabled>Film <span class="soon">snart</span></button>
-    <button class="tab-btn" disabled>Rejser <span class="soon">snart</span></button>
+    <button class="tab-btn" data-tab="rejser">Rejser</button>
   </nav>
 </header>
 
@@ -321,6 +355,27 @@
     </div>
     <div class="count-line" id="records-count-line"></div>
     <div class="grid" id="records-grid"></div>
+  </div>
+
+  <div id="view-rejser" style="display:none;">
+    <div class="toolbar">
+      <div class="view-toggle" id="trips-view-toggle">
+        <button type="button" class="view-toggle-btn active" data-view="oversigt">Oversigt</button>
+        <button type="button" class="view-toggle-btn" data-view="liste">Liste</button>
+      </div>
+      <select id="trips-filter-country"><option value="">Alle lande</option></select>
+      <select id="trips-filter-year"><option value="">Alle år</option></select>
+      <select id="trips-filter-status">
+        <option value="">Alle statusser</option>
+        <option value="completed">Gennemført</option>
+        <option value="planned">Planlagt</option>
+        <option value="wishlist">Ønskeliste</option>
+      </select>
+      <button class="btn" id="add-trip-btn">+ Tilføj rejse</button>
+    </div>
+    <div class="count-line" id="trips-count-line"></div>
+    <div id="trips-oversigt"></div>
+    <div id="trips-liste" style="display:none;"></div>
   </div>
 </main>
 
@@ -613,6 +668,92 @@
       <button class="modal-close" data-close="record-detail-backdrop">✕</button>
     </div>
     <div id="record-detail-body"></div>
+  </div>
+</div>
+
+<!-- Rejser: opret/redigér-modal -->
+<div class="modal-backdrop" id="trip-form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="trip-form-title">Tilføj rejse</h2>
+      <button class="modal-close" data-close="trip-form-backdrop">✕</button>
+    </div>
+    <form id="trip-form">
+      <input type="hidden" id="tf-id">
+      <div class="field">
+        <label for="tf-title">Titel/navn (valgfrit)</label>
+        <input type="text" id="tf-title" autocomplete="off" placeholder="Fx “Skotland (Highlands og Edinburgh)”">
+      </div>
+      <div class="field">
+        <label for="tf-country">Land *</label>
+        <input type="text" id="tf-country" required autocomplete="off">
+      </div>
+      <div class="field">
+        <label>By/steder</label>
+        <div id="tf-stops"></div>
+        <button type="button" class="btn secondary" id="tf-add-stop-btn" style="padding:6px 12px; font-size:0.85rem;">+ Tilføj by</button>
+      </div>
+      <div class="field">
+        <label for="tf-status">Status *</label>
+        <select id="tf-status" required>
+          <option value="completed">Gennemført</option>
+          <option value="planned">Planlagt</option>
+          <option value="wishlist">Ønskeliste</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="tf-start-date">Startdato (hvis kendt)</label>
+          <input type="date" id="tf-start-date">
+        </div>
+        <div class="field">
+          <label for="tf-end-date">Slutdato (hvis kendt)</label>
+          <input type="date" id="tf-end-date">
+        </div>
+      </div>
+      <p class="sub" style="margin:-6px 0 10px; color:var(--text-muted); font-size:0.8rem;">Kender du ikke de præcise datoer, kan du i stedet angive måned/år herunder.</p>
+      <div class="field-row">
+        <div class="field">
+          <label for="tf-month">Måned (hvis kendt, uden præcis dato)</label>
+          <select id="tf-month">
+            <option value="">—</option>
+            <option value="1">Januar</option><option value="2">Februar</option><option value="3">Marts</option>
+            <option value="4">April</option><option value="5">Maj</option><option value="6">Juni</option>
+            <option value="7">Juli</option><option value="8">August</option><option value="9">September</option>
+            <option value="10">Oktober</option><option value="11">November</option><option value="12">December</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="tf-year">År (hvis kendt, uden præcis dato)</label>
+          <input type="number" id="tf-year" placeholder="fx 2027">
+        </div>
+      </div>
+      <div class="field">
+        <label for="tf-photos-url">Google Photos-album (link)</label>
+        <input type="url" id="tf-photos-url" autocomplete="off" placeholder="https://photos.app.goo.gl/…">
+      </div>
+      <div class="field">
+        <label for="tf-notes">Noter</label>
+        <textarea id="tf-notes"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="trip-form-delete-btn" style="display:none;">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="trip-form-backdrop">Annullér</button>
+        <button type="submit" class="btn" id="trip-form-save-btn">Gem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Rejser: delt modal detalje (vises ved klik, ingen login krævet) -->
+<div class="modal-backdrop" id="trip-detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="trip-detail-title">Rejse</h2>
+      <button class="modal-close" data-close="trip-detail-backdrop">✕</button>
+    </div>
+    <div id="trip-detail-body"></div>
   </div>
 </div>
 
@@ -2506,6 +2647,424 @@ document.getElementById('sync-discogs-btn').addEventListener('click', async () =
 });
 
 // ============================================================================
+// Rejser — genbruger samme mønster som Plader/albumserier (pgrest/qs, samme
+// modal-/toast-/requireAuthOrPrompt-konventioner), men er sin egen kodeblok,
+// da Rejser (i modsætning til Tintin/Far Side) kun er "én serie" og har en
+// rigtig relation (trip_stops) i stedet for en fælles skabelon.
+//
+// 'year'/'month' på en rejse bruges KUN som fallback, når præcis dato ikke
+// kendes — findes start_date/end_date, udledes år/måned altid derfra (se
+// tripEffectiveYear/-Month), så vi aldrig gemmer/viser to modstridende svar.
+// ============================================================================
+
+const TRIP_MONTHS = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+const TRIP_STATUS_LABELS = { completed: 'Gennemført', planned: 'Planlagt', wishlist: 'Ønskeliste' };
+const TRIP_SELECT = '*,trip_stops(id,city,sort_order)';
+
+const tripsApi = {
+  list: () => pgrest('GET', '/trips?' + qs({ select: TRIP_SELECT, order: 'id.desc' })),
+  create: (fields) => pgrest('POST', '/trips', { body: fields, singular: true }),
+  update: (id, fields) => pgrest('PATCH', '/trips?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  // trip_stops slettes automatisk med (on delete cascade, se migrations/005_trips.sql).
+  remove: (id) => pgrest('DELETE', '/trips?' + qs({ id: `eq.${id}` })),
+  // Erstatter ALLE byer for én rejse på én gang — enklere og robust nok for en
+  // kort liste redigeret via en formular, fremfor at diffe frem/tilbage.
+  replaceStops: async (tripId, cities) => {
+    await pgrest('DELETE', '/trip_stops?' + qs({ trip_id: `eq.${tripId}` }));
+    if (!cities.length) return;
+    await pgrest('POST', '/trip_stops', { body: cities.map((city, i) => ({ trip_id: tripId, city, sort_order: i })) });
+  },
+};
+
+let trips = [];
+let tripsLoadedOnce = false;
+let tripsViewMode = 'oversigt';
+let tripsSort = { key: 'year', dir: 'desc' };
+
+function tripEffectiveYear(trip) {
+  if (trip.year) return trip.year;
+  const d = trip.start_date || trip.end_date;
+  return d ? Number(d.slice(0, 4)) : null;
+}
+function tripEffectiveMonth(trip) {
+  if (trip.month) return trip.month;
+  const d = trip.start_date || trip.end_date;
+  return d ? Number(d.slice(5, 7)) : null;
+}
+function tripStopsSorted(trip) {
+  return (trip.trip_stops || []).slice().sort((a, b) => a.sort_order - b.sort_order);
+}
+function tripStopsLabel(trip) {
+  return tripStopsSorted(trip).map((s) => s.city).join(', ');
+}
+function tripDateLabel(trip) {
+  const year = tripEffectiveYear(trip);
+  const month = tripEffectiveMonth(trip);
+  if (year && month) return `${TRIP_MONTHS[month - 1]} ${year}`;
+  if (year) return `${year}`;
+  return 'Ukendt dato';
+}
+function formatDateDa(dateStr) {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${d}. ${TRIP_MONTHS[m - 1]} ${y}`;
+}
+function todayIso() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+// "Planned" hvis slutdato (eller startdato, hvis slutdato mangler) er passeret
+// — ALDRIG en skjult/automatisk statusændring, kun et forslag med et
+// eksplicit bekræft-tryk (confirmTripCompleted), se docs/RUNNING.md.
+function isProbablyDone(trip) {
+  if (trip.status !== 'planned') return false;
+  const refDate = trip.end_date || trip.start_date;
+  return !!refDate && refDate < todayIso();
+}
+
+async function loadTrips() {
+  try {
+    trips = await tripsApi.list();
+    tripsLoadedOnce = true;
+    populateTripFilters();
+    renderTrips();
+  } catch (err) {
+    document.getElementById('trips-oversigt').innerHTML =
+      `<div class="empty-state"><div class="icon">✈️</div><div>Kunne ikke indlæse rejser: ${escapeHtml(err.message)}</div></div>`;
+  }
+}
+
+function populateTripFilters() {
+  const countrySel = document.getElementById('trips-filter-country');
+  const yearSel = document.getElementById('trips-filter-year');
+  const countries = [...new Set(trips.map((t) => t.country).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da'));
+  const years = [...new Set(trips.map((t) => tripEffectiveYear(t)).filter(Boolean))].sort((a, b) => b - a);
+  const prevCountry = countrySel.value;
+  const prevYear = yearSel.value;
+  countrySel.innerHTML = '<option value="">Alle lande</option>' + countries.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  yearSel.innerHTML = '<option value="">Alle år</option>' + years.map((y) => `<option value="${y}">${y}</option>`).join('');
+  countrySel.value = countries.includes(prevCountry) ? prevCountry : '';
+  yearSel.value = years.map(String).includes(prevYear) ? prevYear : '';
+}
+
+function getFilteredTrips() {
+  const country = document.getElementById('trips-filter-country').value;
+  const year = document.getElementById('trips-filter-year').value;
+  const status = document.getElementById('trips-filter-status').value;
+  return trips.filter((t) => {
+    if (country && t.country !== country) return false;
+    if (year && String(tripEffectiveYear(t)) !== year) return false;
+    if (status && t.status !== status) return false;
+    return true;
+  });
+}
+
+function tripStatusBadgeHtml(trip) {
+  if (trip.status === 'wishlist') return `<span class="badge dream">Ønskeliste</span>`;
+  if (trip.status === 'planned') {
+    if (isProbablyDone(trip)) {
+      return `<span class="badge warn">Sandsynligvis afsluttet</span> <button type="button" class="btn secondary" data-action="confirm-trip-completed" data-id="${trip.id}">Bekræft</button>`;
+    }
+    return `<span class="badge warn">Planlagt</span>`;
+  }
+  return ''; // completed: intet badge — holder oversigten rolig, som Christian bad om.
+}
+
+function tripCardHTML(trip) {
+  const stopsLabel = tripStopsLabel(trip);
+  const heading = trip.title || trip.country;
+  const subLine = trip.title ? (trip.country + (stopsLabel ? ' · ' + stopsLabel : '')) : stopsLabel;
+  const badges = tripStatusBadgeHtml(trip);
+  return `
+    <div class="trip-card" data-id="${trip.id}">
+      <div class="trip-title">${escapeHtml(heading)}</div>
+      ${subLine ? `<div class="trip-meta">${escapeHtml(subLine)}</div>` : ''}
+      <div class="trip-meta">${escapeHtml(tripDateLabel(trip))}</div>
+      ${badges ? `<div class="trip-badges">${badges}</div>` : ''}
+    </div>`;
+}
+
+function renderTrips() {
+  const filtered = getFilteredTrips();
+  document.getElementById('trips-count-line').textContent =
+    trips.length ? `${filtered.length} af ${trips.length} rejser` : '';
+  if (trips.length === 0) {
+    document.getElementById('trips-oversigt').innerHTML =
+      `<div class="empty-state"><div class="icon">✈️</div><div>Der er endnu ikke tilføjet nogen rejser. Tryk "+ Tilføj rejse" for at komme i gang.</div></div>`;
+    document.getElementById('trips-liste').innerHTML = '';
+    return;
+  }
+  if (tripsViewMode === 'oversigt') renderTripsOversigt(filtered);
+  else renderTripsListe(filtered);
+}
+
+// Kronologisk oversigt, grupperet efter år (nyeste øverst) — completed og
+// planned deler samme tidslinje (kun adskilt af et status-badge), mens
+// wishlist ligger i sin egen sektion, som Christian bad om ("en løs idé om
+// fx Japan må ikke se ud som en kommende rejse").
+function renderTripsOversigt(list) {
+  const wishlist = list.filter((t) => t.status === 'wishlist');
+  const timeline = list.filter((t) => t.status !== 'wishlist');
+
+  const groups = new Map();
+  for (const t of timeline) {
+    const y = tripEffectiveYear(t);
+    const key = y === null ? '__unknown__' : y;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const sortedKeys = [...groups.keys()].sort((a, b) => {
+    if (a === '__unknown__') return 1;
+    if (b === '__unknown__') return -1;
+    return b - a;
+  });
+  const sortKey = (t) => (tripEffectiveYear(t) || 0) * 100 + (tripEffectiveMonth(t) || 0);
+
+  let html = '';
+  if (timeline.length === 0 && wishlist.length === 0) {
+    html = `<div class="empty-state">Ingen rejser matcher filteret.</div>`;
+  }
+  for (const key of sortedKeys) {
+    const yearTrips = groups.get(key).sort((a, b) => sortKey(b) - sortKey(a));
+    html += `<div class="year-group"><h3>${key === '__unknown__' ? 'Ukendt år' : key}</h3><div class="grid">${yearTrips.map(tripCardHTML).join('')}</div></div>`;
+  }
+  if (wishlist.length) {
+    html += `<div class="wishlist-section"><h3>Ønskeliste</h3><div class="hint">Løse idéer og drømme — endnu ikke planlagt.</div><div class="grid">${wishlist.map(tripCardHTML).join('')}</div></div>`;
+  }
+  document.getElementById('trips-oversigt').innerHTML = html;
+}
+
+const TRIP_TABLE_COLUMNS = [
+  { key: 'year', label: 'År' },
+  { key: 'month', label: 'Måned' },
+  { key: 'country', label: 'Land' },
+  { key: 'stops', label: 'By(er)' },
+  { key: 'status', label: 'Status' },
+  { key: 'photos', label: 'Photos' },
+];
+const TRIP_SORTABLE = new Set(['year', 'month', 'country', 'status']);
+
+function tripSortValue(t, key) {
+  switch (key) {
+    case 'year': return tripEffectiveYear(t) ?? -Infinity;
+    case 'month': return tripEffectiveMonth(t) ?? -Infinity;
+    case 'country': return (t.country || '').toLowerCase();
+    case 'status': return t.status;
+    default: return '';
+  }
+}
+
+function renderTripsListe(list) {
+  const sorted = [...list].sort((a, b) => {
+    const va = tripSortValue(a, tripsSort.key);
+    const vb = tripSortValue(b, tripsSort.key);
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return tripsSort.dir === 'asc' ? cmp : -cmp;
+  });
+  const theadHtml = TRIP_TABLE_COLUMNS.map((col) => {
+    const sortable = TRIP_SORTABLE.has(col.key);
+    const isSorted = tripsSort.key === col.key;
+    const arrow = isSorted ? (tripsSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th${sortable ? ` data-sort-key="${col.key}"` : ''} class="${isSorted ? 'sorted' : ''}">${col.label}${arrow}</th>`;
+  }).join('');
+  const rowsHtml = sorted.map((t) => {
+    const year = tripEffectiveYear(t);
+    const month = tripEffectiveMonth(t);
+    const stops = tripStopsLabel(t);
+    return `<tr data-id="${t.id}">
+      <td>${year ?? '—'}</td>
+      <td>${month ? TRIP_MONTHS[month - 1] : '—'}</td>
+      <td>${escapeHtml(t.country || '—')}</td>
+      <td>${stops ? escapeHtml(stops) : '—'}</td>
+      <td>${TRIP_STATUS_LABELS[t.status] || t.status}</td>
+      <td>${t.google_photos_url ? `<a href="${escapeHtml(t.google_photos_url)}" target="_blank" rel="noopener">Åbn</a>` : '—'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('trips-liste').innerHTML = `
+    <div class="trip-table-wrap">
+      <table class="trip-table">
+        <thead><tr>${theadHtml}</tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Ingen rejser matcher filteret.</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+
+document.getElementById('trips-view-toggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('.view-toggle-btn');
+  if (!btn) return;
+  tripsViewMode = btn.dataset.view;
+  document.querySelectorAll('#trips-view-toggle .view-toggle-btn').forEach((b) => b.classList.toggle('active', b === btn));
+  document.getElementById('trips-oversigt').style.display = tripsViewMode === 'oversigt' ? '' : 'none';
+  document.getElementById('trips-liste').style.display = tripsViewMode === 'liste' ? '' : 'none';
+  renderTrips();
+});
+
+['trips-filter-country', 'trips-filter-year', 'trips-filter-status'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', renderTrips);
+});
+
+document.getElementById('trips-oversigt').addEventListener('click', (e) => {
+  const confirmBtn = e.target.closest('[data-action="confirm-trip-completed"]');
+  if (confirmBtn) {
+    e.stopPropagation();
+    if (requireAuthOrPrompt()) confirmTripCompleted(Number(confirmBtn.dataset.id));
+    return;
+  }
+  const card = e.target.closest('.trip-card[data-id]');
+  if (card) openTripDetail(Number(card.dataset.id));
+});
+
+document.getElementById('trips-liste').addEventListener('click', (e) => {
+  const th = e.target.closest('th[data-sort-key]');
+  if (th) {
+    const key = th.dataset.sortKey;
+    if (tripsSort.key === key) tripsSort.dir = tripsSort.dir === 'asc' ? 'desc' : 'asc';
+    else { tripsSort = { key, dir: 'desc' }; }
+    renderTrips();
+    return;
+  }
+  if (e.target.closest('a')) return; // lad Photos-linket åbne normalt
+  const row = e.target.closest('tr[data-id]');
+  if (row) openTripDetail(Number(row.dataset.id));
+});
+
+async function confirmTripCompleted(id) {
+  try {
+    await tripsApi.update(id, { status: 'completed' });
+    showToast('Rejse markeret som gennemført.');
+    await loadTrips();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function openTripDetail(id) {
+  const trip = trips.find((t) => t.id === id);
+  if (!trip) return;
+  const stops = tripStopsSorted(trip).map((s) => s.city);
+  const dateLine = trip.start_date && trip.end_date
+    ? `${formatDateDa(trip.start_date)} – ${formatDateDa(trip.end_date)}`
+    : trip.start_date ? `Fra ${formatDateDa(trip.start_date)}`
+    : trip.end_date ? `Til ${formatDateDa(trip.end_date)}`
+    : tripDateLabel(trip);
+  const badges = tripStatusBadgeHtml(trip) || `<span class="badge ok">${TRIP_STATUS_LABELS[trip.status]}</span>`;
+
+  document.getElementById('trip-detail-title').textContent = trip.title || trip.country;
+  document.getElementById('trip-detail-body').innerHTML = `
+    <div class="detail-meta">${escapeHtml(trip.country)}${stops.length ? ' · ' + escapeHtml(stops.join(', ')) : ''}</div>
+    <div class="detail-meta">${escapeHtml(dateLine)}</div>
+    <div class="detail-meta">${badges}</div>
+    ${trip.google_photos_url ? `<div class="detail-meta"><a href="${escapeHtml(trip.google_photos_url)}" target="_blank" rel="noopener">Åbn Google Photos-album ↗</a></div>` : ''}
+    ${trip.source ? `<div class="detail-meta">Kilde: ${escapeHtml(trip.source)}</div>` : ''}
+    ${trip.notes ? `<div class="detail-notes">${escapeHtml(trip.notes)}</div>` : ''}
+    <div class="modal-actions">
+      <button class="btn danger" id="trip-detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn" id="trip-detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('trip-detail-edit-btn').addEventListener('click', () => {
+    closeModal('trip-detail-backdrop');
+    openTripForm(trip);
+  });
+  document.getElementById('trip-detail-delete-btn').addEventListener('click', async () => {
+    if (!requireAuthOrPrompt()) return;
+    if (!confirm(`Slet rejsen "${trip.title || trip.country}"? Dette kan ikke fortrydes.`)) return;
+    closeModal('trip-detail-backdrop');
+    try {
+      await tripsApi.remove(trip.id);
+      showToast('Rejse slettet.');
+      await loadTrips();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+  openModal('trip-detail-backdrop');
+}
+
+function addStopRow(value) {
+  const wrap = document.getElementById('tf-stops');
+  const row = document.createElement('div');
+  row.className = 'stop-row';
+  row.innerHTML = `<input type="text" class="tf-stop-input" placeholder="By/sted" autocomplete="off"><button type="button" aria-label="Fjern by">✕</button>`;
+  row.querySelector('input').value = value || '';
+  row.querySelector('button').addEventListener('click', () => {
+    row.remove();
+    if (!document.getElementById('tf-stops').children.length) addStopRow('');
+  });
+  wrap.appendChild(row);
+}
+function renderStopRows(cities) {
+  const wrap = document.getElementById('tf-stops');
+  wrap.innerHTML = '';
+  (cities.length ? cities : ['']).forEach((city) => addStopRow(city));
+}
+function collectStopValues() {
+  return Array.from(document.querySelectorAll('#tf-stops .tf-stop-input')).map((i) => i.value.trim()).filter(Boolean);
+}
+document.getElementById('tf-add-stop-btn').addEventListener('click', () => addStopRow(''));
+
+function openTripForm(trip) {
+  if (!requireAuthOrPrompt()) return;
+  document.getElementById('tf-id').value = trip ? trip.id : '';
+  document.getElementById('trip-form-title').textContent = trip ? 'Redigér rejse' : 'Tilføj rejse';
+  document.getElementById('tf-title').value = (trip && trip.title) || '';
+  document.getElementById('tf-country').value = (trip && trip.country) || '';
+  document.getElementById('tf-status').value = (trip && trip.status) || 'completed';
+  document.getElementById('tf-start-date').value = (trip && trip.start_date) || '';
+  document.getElementById('tf-end-date').value = (trip && trip.end_date) || '';
+  document.getElementById('tf-month').value = (trip && trip.month) || '';
+  document.getElementById('tf-year').value = (trip && trip.year) || '';
+  document.getElementById('tf-photos-url').value = (trip && trip.google_photos_url) || '';
+  document.getElementById('tf-notes').value = (trip && trip.notes) || '';
+  document.getElementById('trip-form-delete-btn').style.display = trip ? '' : 'none';
+  renderStopRows(trip ? tripStopsSorted(trip).map((s) => s.city) : []);
+  openModal('trip-form-backdrop');
+  document.getElementById('tf-country').focus();
+}
+document.getElementById('add-trip-btn').addEventListener('click', () => openTripForm(null));
+
+document.getElementById('trip-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('tf-id').value;
+  const stops = collectStopValues();
+  const payload = {
+    title: document.getElementById('tf-title').value.trim() || null,
+    country: document.getElementById('tf-country').value.trim(),
+    status: document.getElementById('tf-status').value,
+    start_date: document.getElementById('tf-start-date').value || null,
+    end_date: document.getElementById('tf-end-date').value || null,
+    month: document.getElementById('tf-month').value ? Number(document.getElementById('tf-month').value) : null,
+    year: document.getElementById('tf-year').value ? Number(document.getElementById('tf-year').value) : null,
+    google_photos_url: document.getElementById('tf-photos-url').value.trim() || null,
+    notes: document.getElementById('tf-notes').value.trim() || null,
+  };
+  try {
+    const saved = id ? await tripsApi.update(id, payload) : await tripsApi.create(payload);
+    await tripsApi.replaceStops(saved.id, stops);
+    closeModal('trip-form-backdrop');
+    showToast(id ? 'Rejse opdateret.' : 'Rejse tilføjet.');
+    await loadTrips();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('trip-form-delete-btn').addEventListener('click', async () => {
+  const id = Number(document.getElementById('tf-id').value);
+  const label = document.getElementById('tf-title').value || document.getElementById('tf-country').value;
+  if (!confirm(`Slet rejsen "${label}"? Dette kan ikke fortrydes.`)) return;
+  try {
+    await tripsApi.remove(id);
+    closeModal('trip-form-backdrop');
+    showToast('Rejse slettet.');
+    await loadTrips();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// ============================================================================
 // Faneblade
 // ============================================================================
 
@@ -2517,10 +3076,12 @@ function switchTab(tab) {
   document.getElementById('view-tintin').style.display = tab === 'tintin' ? '' : 'none';
   document.getElementById('view-farside').style.display = tab === 'farside' ? '' : 'none';
   document.getElementById('view-plader').style.display = tab === 'plader' ? '' : 'none';
+  document.getElementById('view-rejser').style.display = tab === 'rejser' ? '' : 'none';
   if (tab === 'jumbo' && !jumboLoadedOnce) loadJumboBooks();
   if (tab === 'comics' && !comicsLoadedOnce) loadComicYears();
   if ((tab === 'tintin' || tab === 'farside') && !seriesLoadedOnce[tab]) loadSeriesAlbums(tab);
   if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
+  if (tab === 'rejser' && !tripsLoadedOnce) loadTrips();
 }
 document.querySelectorAll('.tab-btn[data-tab]').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
