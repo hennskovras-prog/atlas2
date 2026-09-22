@@ -167,6 +167,11 @@
     padding:14px 16px; cursor:pointer; display:flex; flex-direction:column; gap:4px;
   }
   .trip-card:hover{ box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+  .trip-card .trip-thumb-wrap{
+    width:100%; aspect-ratio: 16 / 9; border-radius: var(--radius-sm); overflow:hidden;
+    background:#EFE7DA; margin-bottom:2px;
+  }
+  .trip-card .trip-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
   .trip-card .trip-title{ font-weight:700; font-size:0.95rem; }
   .trip-card .trip-meta{ color: var(--text-muted); font-size:0.82rem; }
   .trip-card .trip-badges{ margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
@@ -894,6 +899,14 @@ const OPENLIBRARY_PROXY_URL = SUPABASE_URL.includes('DIT-PROJEKT')
 const DISCOGS_SYNC_URL = SUPABASE_URL.includes('DIT-PROJEKT')
   ? ''
   : `${SUPABASE_URL}/functions/v1/discogs-sync`;
+
+// Samme idé igen: henter et lille forsidebillede til et rejsekort ud fra
+// rejsens google_photos_url (se supabase/functions/google-photos-thumbnail).
+// Nødvendig som Edge Function, ikke direkte browser-fetch, fordi Google
+// Photos-sider ikke sender CORS-headers, der tillader det.
+const GOOGLE_PHOTOS_THUMBNAIL_PROXY_URL = SUPABASE_URL.includes('DIT-PROJEKT')
+  ? ''
+  : `${SUPABASE_URL}/functions/v1/google-photos-thumbnail`;
 
 const REST_URL = `${SUPABASE_URL}/rest/v1`;
 const AUTH_URL = `${SUPABASE_URL}/auth/v1`;
@@ -2871,8 +2884,12 @@ function tripCardHTML(trip) {
   const heading = trip.title || trip.country;
   const subLine = trip.title ? (trip.country + (stopsLabel ? ' · ' + stopsLabel : '')) : stopsLabel;
   const badges = tripStatusBadgeHtml(trip);
+  const thumbHtml = trip.google_photos_thumbnail_url
+    ? `<div class="trip-thumb-wrap"><img src="${escapeHtml(trip.google_photos_thumbnail_url)}" alt="" loading="lazy" onerror="this.parentElement.remove()"></div>`
+    : '';
   return `
     <div class="trip-card" data-id="${trip.id}">
+      ${thumbHtml}
       <div class="trip-title">${escapeHtml(heading)}</div>
       ${subLine ? `<div class="trip-meta">${escapeHtml(subLine)}</div>` : ''}
       <div class="trip-meta">${escapeHtml(tripDateLabel(trip))}</div>
@@ -2928,6 +2945,46 @@ function renderTripsOversigt(list) {
     html += `<div class="wishlist-section"><h3>Ønskeliste</h3><div class="hint">Løse idéer og drømme — endnu ikke planlagt.</div><div class="grid">${wishlist.map(tripCardHTML).join('')}</div></div>`;
   }
   document.getElementById('trips-oversigt').innerHTML = html;
+  ensureTripThumbnails(list); // kun Oversigt viser billeder, som Christian bad om — Liste henter/viser ikke
+}
+
+// Rejse-id'er vi allerede har forsøgt at hente et thumbnail til i DENNE
+// session — undgår gentagne Edge Function-kald, hvis et link er dødt/ændret
+// (uden en ekstra "forsøgt"-kolonne i databasen, se migrations/007).
+const tripThumbnailAttempted = new Set();
+
+function ensureTripThumbnails(list) {
+  if (!GOOGLE_PHOTOS_THUMBNAIL_PROXY_URL) return; // Edge Function ikke sat op endnu, se docs/RUNNING.md
+  for (const trip of list) {
+    if (!trip.google_photos_url || trip.google_photos_thumbnail_url) continue;
+    if (tripThumbnailAttempted.has(trip.id)) continue;
+    tripThumbnailAttempted.add(trip.id);
+    fetchTripThumbnail(trip); // fire-and-forget — opdaterer kortet i DOM'en, hvis/når det lykkes
+  }
+}
+
+async function fetchTripThumbnail(trip) {
+  try {
+    const res = await fetch(
+      `${GOOGLE_PHOTOS_THUMBNAIL_PROXY_URL}?action=thumbnail&url=${encodeURIComponent(trip.google_photos_url)}`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY } }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.thumbnail_url) return;
+    trip.google_photos_thumbnail_url = data.thumbnail_url; // cachés i DB, så vi ikke henter igen næste gang
+    await tripsApi.update(trip.id, { google_photos_thumbnail_url: data.thumbnail_url });
+    // Sæt billedet direkte ind i det allerede rendrede kort i stedet for et
+    // fuldt re-render — flere rejsers thumbnails kan lande på forskellige
+    // tidspunkter, og vi vil ikke forstyrre scroll/filtre undervejs.
+    const card = document.querySelector(`.trip-card[data-id="${trip.id}"]`);
+    if (card && !card.querySelector('.trip-thumb-wrap')) {
+      card.insertAdjacentHTML('afterbegin',
+        `<div class="trip-thumb-wrap"><img src="${escapeHtml(data.thumbnail_url)}" alt="" loading="lazy" onerror="this.parentElement.remove()"></div>`);
+    }
+  } catch (err) {
+    // Stille fejl — et manglende thumbnail er kosmetisk, ikke kritisk.
+  }
 }
 
 const TRIP_TABLE_COLUMNS = [
