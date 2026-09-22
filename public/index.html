@@ -297,8 +297,12 @@
 
   .detail-cover{ width: 160px; aspect-ratio:2/3; border-radius: var(--radius-sm); overflow:hidden; float:left; margin: 0 16px 10px 0; background:#EFE7DA; }
   .detail-cover.square{ aspect-ratio:1/1; }
+  /* Rejser: samme mønster som plade-/bogcoveret, blot i bredformat (16:9),
+     så det passer til et rejsefoto i stedet for et cover. */
+  .detail-cover.wide{ width: 220px; aspect-ratio:16/9; }
   .detail-cover img{ width:100%; height:100%; object-fit:cover; }
   .detail-meta{ color: var(--text-muted); font-size:0.9rem; margin: 2px 0; }
+  .detail-meta.detail-meta-secondary{ margin-top: 10px; }
   .detail-notes{ margin-top: 10px; white-space: pre-wrap; }
   .clearfix::after{ content:""; display:block; clear:both; }
 
@@ -2982,6 +2986,16 @@ async function fetchTripThumbnail(trip) {
       card.insertAdjacentHTML('afterbegin',
         `<div class="trip-thumb-wrap"><img src="${escapeHtml(data.thumbnail_url)}" alt="" loading="lazy" onerror="this.parentElement.remove()"></div>`);
     }
+    // Samme idé for detaljevisningen, hvis den stadig står åben på netop
+    // denne rejse (dataset.tripId, sat i openTripDetail) — undgår at et
+    // sent svar rammer en lukket modal eller en anden rejses visning.
+    const backdrop = document.getElementById('trip-detail-backdrop');
+    if (backdrop.classList.contains('open') && backdrop.dataset.tripId === String(trip.id)) {
+      const clearfix = document.getElementById('trip-detail-clearfix');
+      if (clearfix && !clearfix.querySelector('.detail-cover')) {
+        clearfix.insertAdjacentHTML('afterbegin', tripThumbnailCoverHtml(trip));
+      }
+    }
   } catch (err) {
     // Stille fejl — et manglende thumbnail er kosmetisk, ikke kritisk.
   }
@@ -3101,14 +3115,29 @@ function openTripDetail(id) {
     : trip.end_date ? `Til ${formatDateDa(trip.end_date)}`
     : tripDateLabel(trip);
   const badges = tripStatusBadgeHtml(trip) || `<span class="badge ok">${TRIP_STATUS_LABELS[trip.status]}</span>`;
+  const coverHtml = tripThumbnailCoverHtml(trip);
+
+  // Sammen med data-tripId herunder bruges dette af fetchTripThumbnail() til
+  // at afgøre, om detaljevisningen stadig viser DENNE rejse, når/hvis et
+  // Google Photos-thumbnail dukker op asynkront (se ensureTripThumbnails-
+  // kaldet nedenfor) — ellers rammer et sent svar en modal, der i
+  // mellemtiden er lukket eller viser en anden rejse.
+  const backdrop = document.getElementById('trip-detail-backdrop');
+  backdrop.dataset.tripId = String(trip.id);
 
   document.getElementById('trip-detail-title').textContent = trip.title || trip.country;
   document.getElementById('trip-detail-body').innerHTML = `
-    <div class="detail-meta">${escapeHtml(trip.country)}${stops.length ? ' · ' + escapeHtml(stops.join(', ')) : ''}</div>
-    <div class="detail-meta">${escapeHtml(dateLine)}</div>
-    <div class="detail-meta">${badges}</div>
-    ${trip.google_photos_url ? `<div class="detail-meta"><a href="${escapeHtml(trip.google_photos_url)}" target="_blank" rel="noopener">Åbn Google Photos-album ↗</a></div>` : ''}
-    ${trip.source ? `<div class="detail-meta">Kilde: ${escapeHtml(trip.source)}</div>` : ''}
+    <div class="clearfix" id="trip-detail-clearfix">
+      ${coverHtml}
+      <div class="detail-meta">${escapeHtml(trip.country)}${stops.length ? ' · ' + escapeHtml(stops.join(', ')) : ''}</div>
+      <div class="detail-meta">${escapeHtml(dateLine)}</div>
+      <div class="detail-meta">${badges}</div>
+    </div>
+    ${(trip.google_photos_url || trip.source) ? `
+    <div class="detail-meta-secondary">
+      ${trip.google_photos_url ? `<div class="detail-meta"><a href="${escapeHtml(trip.google_photos_url)}" target="_blank" rel="noopener">Åbn Google Photos-album ↗</a></div>` : ''}
+      ${trip.source ? `<div class="detail-meta">Kilde: ${escapeHtml(trip.source)}</div>` : ''}
+    </div>` : ''}
     ${trip.notes ? `<div class="detail-notes">${escapeHtml(trip.notes)}</div>` : ''}
     <div class="modal-actions">
       <button class="btn danger" id="trip-detail-delete-btn">Slet</button>
@@ -3133,6 +3162,20 @@ function openTripDetail(id) {
     }
   });
   openModal('trip-detail-backdrop');
+
+  // Detaljevisningen kan åbnes fra Liste, hvor kortene aldrig henter
+  // thumbnails (Christians valg — kun Oversigt viser dem i kort-form).
+  // Her ønskes billedet dog altid, uanset hvor man kom fra, så det
+  // forsøges hentet uafhængigt af Oversigt-visningen.
+  ensureTripThumbnails([trip]);
+}
+
+// Bruges både i openTripDetail() og når et thumbnail dukker op asynkront
+// bagefter (fetchTripThumbnail) — én kilde til markuppen for konsistens.
+function tripThumbnailCoverHtml(trip) {
+  return trip.google_photos_thumbnail_url
+    ? `<div class="detail-cover wide"><img src="${escapeHtml(trip.google_photos_thumbnail_url)}" alt="" onerror="this.parentElement.remove()"></div>`
+    : '';
 }
 
 function addStopRow(value) {
