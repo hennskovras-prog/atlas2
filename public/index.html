@@ -162,20 +162,26 @@
   .badge.dream{ background:var(--badge-dream-bg); color:var(--badge-dream-text); }
   .year-group{ margin-bottom: 28px; }
   .year-group h3{ font-size:1.15rem; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:6px; margin:0 0 14px 0; }
-  .trip-card{
+  .trip-card, .event-card{
     background: var(--bg-elevated); border-radius: var(--radius); box-shadow: var(--card-shadow);
     padding:14px 16px; cursor:pointer; display:flex; flex-direction:column; gap:4px;
   }
-  .trip-card:hover{ box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+  .trip-card:hover, .event-card:hover{ box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
   .trip-card .trip-thumb-wrap{
     width:100%; aspect-ratio: 16 / 9; border-radius: var(--radius-sm); overflow:hidden;
     background:#EFE7DA; margin-bottom:2px;
   }
   .trip-card .trip-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
-  .trip-card .trip-title{ font-weight:700; font-size:0.95rem; }
-  .trip-card .trip-meta{ color: var(--text-muted); font-size:0.82rem; }
-  .trip-card .trip-badges{ margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-  .trip-card .trip-badges .btn{ padding:3px 9px; font-size:0.72rem; }
+  .trip-card .trip-title, .event-card .trip-title{ font-weight:700; font-size:0.95rem; }
+  .trip-card .trip-meta, .event-card .trip-meta{ color: var(--text-muted); font-size:0.82rem; }
+  .trip-card .trip-badges, .event-card .trip-badges{ margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .trip-card .trip-badges .btn, .event-card .trip-badges .btn{ padding:3px 9px; font-size:0.72rem; }
+  /* Events: samme kortudseende som Rejser (grupperet med .trip-card ovenfor),
+     men en EGEN klasse (event-card) — ellers ville globale selectors som
+     .trip-card[data-id="N"] (fx thumbnail-indsættelsen) kunne ramme et event
+     med samme id i stedet for den rigtige rejse. */
+  .event-card .event-when{ font-weight:600; font-size:0.85rem; color: var(--text); }
+  .event-card .event-time-missing{ font-style: italic; }
   .wishlist-section{ margin-top: 12px; border-top: 2px dashed var(--border); padding-top: 20px; }
   .wishlist-section h3{ font-size:1.15rem; color:var(--text-muted); margin:0 0 2px 0; }
   .wishlist-section .hint{ color:var(--text-muted); font-size:0.85rem; margin:0 0 14px 0; }
@@ -334,6 +340,7 @@
          kommentarerne for at genaktivere placeholder-fanen. -->
     <!-- <button class="tab-btn" disabled>Film <span class="soon">snart</span></button> -->
     <button class="tab-btn" data-tab="rejser">Rejser</button>
+    <button class="tab-btn" data-tab="events">Events</button>
   </nav>
   <nav class="subtabs" id="subtabs-tegneserier" style="display:none;">
     <button class="tab-btn" data-tab="jumbo">Jumbo-bøger</button>
@@ -444,6 +451,36 @@
     <div class="count-line" id="trips-count-line"></div>
     <div id="trips-oversigt"></div>
     <div id="trips-liste" style="display:none;"></div>
+  </div>
+
+  <!-- Events: koncerter, teater, biograf osv. Egen fane/tabel (se
+       migrations/008_events.sql), men samme visningsmønster som Rejser. -->
+  <div id="view-events" style="display:none;">
+    <div class="toolbar">
+      <div class="view-toggle" id="events-view-toggle">
+        <button type="button" class="view-toggle-btn active" data-view="oversigt">Oversigt</button>
+        <button type="button" class="view-toggle-btn" data-view="liste">Liste</button>
+      </div>
+      <select id="events-filter-type">
+        <option value="">Alle typer</option>
+        <option value="koncert">Koncert</option>
+        <option value="teater">Teater</option>
+        <option value="opera">Opera</option>
+        <option value="ballet">Ballet</option>
+        <option value="biograf">Biograf</option>
+        <option value="andet">Andet</option>
+      </select>
+      <select id="events-filter-year"><option value="">Alle år</option></select>
+      <select id="events-filter-status">
+        <option value="">Alle statusser</option>
+        <option value="planned">Planlagt</option>
+        <option value="attended">Oplevet</option>
+      </select>
+      <button class="btn" id="add-event-btn">+ Tilføj event</button>
+    </div>
+    <div class="count-line" id="events-count-line"></div>
+    <div id="events-oversigt"></div>
+    <div id="events-liste" style="display:none;"></div>
   </div>
 </main>
 
@@ -822,6 +859,92 @@
       <button class="modal-close" data-close="trip-detail-backdrop">✕</button>
     </div>
     <div id="trip-detail-body"></div>
+  </div>
+</div>
+
+<!-- Events: delt modal detalje (vises ved klik, ingen login krævet) -->
+<div class="modal-backdrop" id="event-detail-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="event-detail-title">Event</h2>
+      <button class="modal-close" data-close="event-detail-backdrop">✕</button>
+    </div>
+    <div id="event-detail-body"></div>
+  </div>
+</div>
+
+<!-- Events: opret/redigér-modal -->
+<div class="modal-backdrop" id="event-form-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="event-form-title">Tilføj event</h2>
+      <button class="modal-close" data-close="event-form-backdrop">✕</button>
+    </div>
+    <form id="event-form">
+      <input type="hidden" id="ef-id">
+      <div class="field">
+        <label for="ef-title">Titel *</label>
+        <input type="text" id="ef-title" required autocomplete="off" placeholder="Fx “Jessie Ware”">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="ef-type">Type *</label>
+          <select id="ef-type" required>
+            <option value="koncert">Koncert</option>
+            <option value="teater">Teater</option>
+            <option value="opera">Opera</option>
+            <option value="ballet">Ballet</option>
+            <option value="biograf">Biograf</option>
+            <option value="andet">Andet</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ef-status">Status *</label>
+          <select id="ef-status" required>
+            <option value="planned">Planlagt</option>
+            <option value="attended">Oplevet</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="ef-date">Dato *</label>
+        <input type="date" id="ef-date" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="ef-start-time">Starttid (hvis kendt)</label>
+          <input type="time" id="ef-start-time">
+        </div>
+        <div class="field">
+          <label for="ef-end-time">Sluttid (hvis kendt)</label>
+          <input type="time" id="ef-end-time">
+        </div>
+      </div>
+      <div class="field">
+        <label for="ef-venue">Sted</label>
+        <input type="text" id="ef-venue" autocomplete="off" placeholder="Fx “Royal Arena”">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="ef-companions">Med hvem</label>
+          <input type="text" id="ef-companions" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="ef-tickets">Antal billetter</label>
+          <input type="number" id="ef-tickets" min="1" step="1">
+        </div>
+      </div>
+      <div class="field">
+        <label for="ef-notes">Noter</label>
+        <textarea id="ef-notes"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn danger" id="event-form-delete-btn" style="display:none;">Slet</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="event-form-backdrop">Annullér</button>
+        <button type="submit" class="btn" id="event-form-save-btn">Gem</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -3714,6 +3837,376 @@ async function runGmailScan() {
 document.getElementById('gmail-scan-btn').addEventListener('click', runGmailScan);
 
 // ============================================================================
+// Events — koncerter, teater, opera, ballet, biograf og lignende. Egen fane og
+// tabel (migrations/008_events.sql), men samme visningsmønster som Rejser:
+// Oversigt (kort) + Liste (sortérbar tabel), filtre, og et "planlagt ->
+// oplevet"-forslag der KUN bliver til en statusændring ved et eksplicit klik
+// (aldrig automatisk, præcis som isProbablyDone() hos rejser).
+//
+// Hvor en rejse er et forløb med land/byer, er en event ét tidspunkt på ét
+// sted — derfor ikke samme tabel. Se begrundelsen i migrationsfilen.
+// ============================================================================
+
+const EVENT_TYPE_LABELS = { koncert: 'Koncert', teater: 'Teater', opera: 'Opera', ballet: 'Ballet', biograf: 'Biograf', andet: 'Andet' };
+const EVENT_TYPE_ICONS = { koncert: '🎵', teater: '🎭', opera: '🎼', ballet: '🩰', biograf: '🎬', andet: '✨' };
+const EVENT_STATUS_LABELS = { planned: 'Planlagt', attended: 'Oplevet' };
+const EVENT_WEEKDAYS = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+
+const eventsApi = {
+  list: () => pgrest('GET', '/events?' + qs({ select: '*', order: 'event_date.desc,id.desc' })),
+  create: (fields) => pgrest('POST', '/events', { body: fields, singular: true }),
+  update: (id, fields) => pgrest('PATCH', '/events?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  remove: (id) => pgrest('DELETE', '/events?' + qs({ id: `eq.${id}` })),
+};
+
+let events = [];
+let eventsLoadedOnce = false;
+let eventsViewMode = 'oversigt';
+let eventsSort = { key: 'date', dir: 'desc' };
+
+function eventYear(ev) {
+  return Number(ev.event_date.slice(0, 4));
+}
+// Postgres time kommer som "18:30:00"; vises dansk som "18.30".
+function formatTimeDa(t) {
+  return t ? t.slice(0, 5).replace(':', '.') : '';
+}
+function eventTimeLabel(ev) {
+  const start = formatTimeDa(ev.start_time);
+  const end = formatTimeDa(ev.end_time);
+  if (start && end) return `kl. ${start}–${end}`;
+  if (start) return `kl. ${start}`;
+  if (end) return `til kl. ${end}`;
+  return '';
+}
+function eventDateLabel(ev) {
+  const [y, m, d] = ev.event_date.split('-').map(Number);
+  const weekday = EVENT_WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${weekday} ${formatDateDa(ev.event_date)}`;
+}
+// "Planlagt", men datoen er allerede passeret: foreslå (ikke udfør) oplevet.
+function isEventProbablyDone(ev) {
+  return ev.status === 'planned' && ev.event_date < todayIso();
+}
+function isEventUpcoming(ev) {
+  return ev.status === 'planned' && ev.event_date >= todayIso();
+}
+
+async function loadEvents() {
+  try {
+    events = await eventsApi.list();
+    eventsLoadedOnce = true;
+    populateEventFilters();
+    renderEvents();
+  } catch (err) {
+    document.getElementById('events-oversigt').innerHTML =
+      `<div class="empty-state"><div class="icon">🎭</div><div>Kunne ikke indlæse events: ${escapeHtml(err.message)}</div></div>`;
+  }
+}
+
+function populateEventFilters() {
+  const yearSel = document.getElementById('events-filter-year');
+  const years = [...new Set(events.map(eventYear))].sort((a, b) => b - a);
+  const prevYear = yearSel.value;
+  yearSel.innerHTML = '<option value="">Alle år</option>' + years.map((y) => `<option value="${y}">${y}</option>`).join('');
+  yearSel.value = years.map(String).includes(prevYear) ? prevYear : '';
+}
+
+function getFilteredEvents() {
+  const type = document.getElementById('events-filter-type').value;
+  const year = document.getElementById('events-filter-year').value;
+  const status = document.getElementById('events-filter-status').value;
+  return events.filter((ev) => {
+    if (type && ev.event_type !== type) return false;
+    if (year && String(eventYear(ev)) !== year) return false;
+    if (status && ev.status !== status) return false;
+    return true;
+  });
+}
+
+function eventStatusBadgeHtml(ev) {
+  if (ev.status === 'planned') {
+    if (isEventProbablyDone(ev)) {
+      return `<span class="badge warn">Sandsynligvis overstået</span> <button type="button" class="btn secondary" data-action="confirm-event-attended" data-id="${ev.id}">Bekræft</button>`;
+    }
+    return `<span class="badge warn">Planlagt</span>`;
+  }
+  return ''; // attended: intet badge — samme rolige udtryk som gennemførte rejser.
+}
+
+function eventCardHTML(ev) {
+  const icon = EVENT_TYPE_ICONS[ev.event_type] || '';
+  const typeVenue = [EVENT_TYPE_LABELS[ev.event_type], ev.venue].filter(Boolean).join(' · ');
+  // Tidspunktet står på sin egen linje under datoen — sammen med den lange
+  // ugedag+dato ombrød det grimt på smalle (mobil)kort.
+  const time = eventTimeLabel(ev);
+  const timeHtml = time
+    ? `<div class="trip-meta">${escapeHtml(time)}</div>`
+    : (ev.status === 'planned' ? `<div class="trip-meta event-time-missing">tidspunkt mangler</div>` : '');
+  const extras = [ev.companions ? `Med ${ev.companions}` : '', ev.ticket_count ? `${ev.ticket_count} billet${ev.ticket_count === 1 ? '' : 'ter'}` : '']
+    .filter(Boolean).join(' · ');
+  const badges = eventStatusBadgeHtml(ev);
+  return `
+    <div class="event-card" data-id="${ev.id}">
+      <div class="trip-title">${icon} ${escapeHtml(ev.title)}</div>
+      <div class="trip-meta">${escapeHtml(typeVenue)}</div>
+      <div class="event-when">${escapeHtml(eventDateLabel(ev))}</div>
+      ${timeHtml}
+      ${extras ? `<div class="trip-meta">${escapeHtml(extras)}</div>` : ''}
+      ${badges ? `<div class="trip-badges">${badges}</div>` : ''}
+    </div>`;
+}
+
+function renderEvents() {
+  const filtered = getFilteredEvents();
+  document.getElementById('events-count-line').textContent =
+    events.length ? `${filtered.length} af ${events.length} events` : '';
+  if (events.length === 0) {
+    document.getElementById('events-oversigt').innerHTML =
+      `<div class="empty-state"><div class="icon">🎭</div><div>Der er endnu ikke tilføjet nogen events. Tryk "+ Tilføj event" for at komme i gang.</div></div>`;
+    document.getElementById('events-liste').innerHTML = '';
+    return;
+  }
+  if (eventsViewMode === 'oversigt') renderEventsOversigt(filtered);
+  else renderEventsListe(filtered);
+}
+
+// Kommende events øverst, tættest på først (det man skal bruge til at
+// planlægge), derefter resten grupperet efter år med nyeste år øverst — også
+// planlagte events, hvis dato er passeret (med "Bekræft"-forslag).
+function renderEventsOversigt(list) {
+  const upcoming = list.filter(isEventUpcoming)
+    .sort((a, b) => (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || '')));
+  const rest = list.filter((ev) => !isEventUpcoming(ev));
+
+  const groups = new Map();
+  for (const ev of rest) {
+    const y = eventYear(ev);
+    if (!groups.has(y)) groups.set(y, []);
+    groups.get(y).push(ev);
+  }
+  const years = [...groups.keys()].sort((a, b) => b - a);
+
+  let html = '';
+  if (upcoming.length === 0 && rest.length === 0) {
+    html = `<div class="empty-state">Ingen events matcher filteret.</div>`;
+  }
+  if (upcoming.length) {
+    html += `<div class="year-group"><h3>Kommende</h3><div class="grid">${upcoming.map(eventCardHTML).join('')}</div></div>`;
+  }
+  for (const y of years) {
+    const evs = groups.get(y).sort((a, b) => (b.event_date + (b.start_time || '')).localeCompare(a.event_date + (a.start_time || '')));
+    html += `<div class="year-group"><h3>${y}</h3><div class="grid">${evs.map(eventCardHTML).join('')}</div></div>`;
+  }
+  document.getElementById('events-oversigt').innerHTML = html;
+}
+
+const EVENT_TABLE_COLUMNS = [
+  { key: 'date', label: 'Dato' },
+  { key: 'title', label: 'Event' },
+  { key: 'type', label: 'Type' },
+  { key: 'venue', label: 'Sted' },
+  { key: 'companions', label: 'Med' },
+  { key: 'status', label: 'Status' },
+];
+function eventSortValue(ev, key) {
+  switch (key) {
+    case 'date': return ev.event_date + (ev.start_time || '');
+    case 'title': return (ev.title || '').toLowerCase();
+    case 'type': return EVENT_TYPE_LABELS[ev.event_type] || '';
+    case 'venue': return (ev.venue || '').toLowerCase();
+    case 'companions': return (ev.companions || '').toLowerCase();
+    case 'status': return ev.status;
+    default: return '';
+  }
+}
+
+function renderEventsListe(list) {
+  const sorted = [...list].sort((a, b) => {
+    const va = eventSortValue(a, eventsSort.key);
+    const vb = eventSortValue(b, eventsSort.key);
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return eventsSort.dir === 'asc' ? cmp : -cmp;
+  });
+  const theadHtml = EVENT_TABLE_COLUMNS.map((col) => {
+    const isSorted = eventsSort.key === col.key;
+    const arrow = isSorted ? (eventsSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th data-sort-key="${col.key}" class="${isSorted ? 'sorted' : ''}">${col.label}${arrow}</th>`;
+  }).join('');
+  const rowsHtml = sorted.map((ev) => {
+    const time = eventTimeLabel(ev);
+    return `<tr data-id="${ev.id}">
+      <td>${escapeHtml(formatDateDa(ev.event_date))}${time ? ' ' + escapeHtml(time) : ''}</td>
+      <td>${escapeHtml(ev.title)}</td>
+      <td>${EVENT_TYPE_LABELS[ev.event_type] || ev.event_type}</td>
+      <td>${ev.venue ? escapeHtml(ev.venue) : '—'}</td>
+      <td>${ev.companions ? escapeHtml(ev.companions) : '—'}</td>
+      <td>${EVENT_STATUS_LABELS[ev.status] || ev.status}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('events-liste').innerHTML = `
+    <div class="trip-table-wrap">
+      <table class="trip-table">
+        <thead><tr>${theadHtml}</tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Ingen events matcher filteret.</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+
+document.getElementById('events-view-toggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('.view-toggle-btn');
+  if (!btn) return;
+  eventsViewMode = btn.dataset.view;
+  document.querySelectorAll('#events-view-toggle .view-toggle-btn').forEach((b) => b.classList.toggle('active', b === btn));
+  document.getElementById('events-oversigt').style.display = eventsViewMode === 'oversigt' ? '' : 'none';
+  document.getElementById('events-liste').style.display = eventsViewMode === 'liste' ? '' : 'none';
+  renderEvents();
+});
+
+['events-filter-type', 'events-filter-year', 'events-filter-status'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', renderEvents);
+});
+
+document.getElementById('events-oversigt').addEventListener('click', (e) => {
+  const confirmBtn = e.target.closest('[data-action="confirm-event-attended"]');
+  if (confirmBtn) {
+    e.stopPropagation();
+    if (requireAuthOrPrompt()) confirmEventAttended(Number(confirmBtn.dataset.id));
+    return;
+  }
+  const card = e.target.closest('.event-card[data-id]');
+  if (card) openEventDetail(Number(card.dataset.id));
+});
+
+document.getElementById('events-liste').addEventListener('click', (e) => {
+  const th = e.target.closest('th[data-sort-key]');
+  if (th) {
+    const key = th.dataset.sortKey;
+    if (eventsSort.key === key) eventsSort.dir = eventsSort.dir === 'asc' ? 'desc' : 'asc';
+    else eventsSort = { key, dir: 'desc' };
+    renderEvents();
+    return;
+  }
+  const row = e.target.closest('tr[data-id]');
+  if (row) openEventDetail(Number(row.dataset.id));
+});
+
+async function confirmEventAttended(id) {
+  try {
+    await eventsApi.update(id, { status: 'attended' });
+    showToast('Event markeret som oplevet.');
+    await loadEvents();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function openEventDetail(id) {
+  const ev = events.find((x) => x.id === id);
+  if (!ev) return;
+  const time = eventTimeLabel(ev);
+  const badges = eventStatusBadgeHtml(ev) || `<span class="badge ok">${EVENT_STATUS_LABELS[ev.status]}</span>`;
+  const typeLine = `${EVENT_TYPE_ICONS[ev.event_type] || ''} ${EVENT_TYPE_LABELS[ev.event_type] || ev.event_type}`;
+
+  document.getElementById('event-detail-title').textContent = ev.title;
+  document.getElementById('event-detail-body').innerHTML = `
+    <div class="detail-meta">${escapeHtml(typeLine)}${ev.venue ? ' · ' + escapeHtml(ev.venue) : ''}</div>
+    <div class="detail-meta">${escapeHtml(eventDateLabel(ev))}${time ? ' · ' + escapeHtml(time) : ''}</div>
+    <div class="detail-meta">${badges}</div>
+    ${(ev.companions || ev.ticket_count) ? `
+    <div class="detail-meta-secondary">
+      ${ev.companions ? `<div class="detail-meta">Med: ${escapeHtml(ev.companions)}</div>` : ''}
+      ${ev.ticket_count ? `<div class="detail-meta">Billetter: ${ev.ticket_count}</div>` : ''}
+    </div>` : ''}
+    ${ev.notes ? `<div class="detail-notes">${escapeHtml(ev.notes)}</div>` : ''}
+    <div class="modal-actions">
+      <button class="btn danger" id="event-detail-delete-btn">Slet</button>
+      <span class="spacer"></span>
+      <button class="btn" id="event-detail-edit-btn">Redigér</button>
+    </div>
+  `;
+  document.getElementById('event-detail-edit-btn').addEventListener('click', () => {
+    closeModal('event-detail-backdrop');
+    openEventForm(ev);
+  });
+  document.getElementById('event-detail-delete-btn').addEventListener('click', async () => {
+    if (!requireAuthOrPrompt()) return;
+    if (!confirm(`Slet eventen "${ev.title}"? Dette kan ikke fortrydes.`)) return;
+    closeModal('event-detail-backdrop');
+    try {
+      await eventsApi.remove(ev.id);
+      showToast('Event slettet.');
+      await loadEvents();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+  openModal('event-detail-backdrop');
+}
+
+function openEventForm(ev) {
+  if (!requireAuthOrPrompt()) return;
+  const id = ev && ev.id;
+  document.getElementById('ef-id').value = id || '';
+  document.getElementById('event-form-title').textContent = id ? 'Redigér event' : 'Tilføj event';
+  document.getElementById('ef-title').value = (ev && ev.title) || '';
+  document.getElementById('ef-type').value = (ev && ev.event_type) || 'koncert';
+  document.getElementById('ef-status').value = (ev && ev.status) || 'planned';
+  document.getElementById('ef-date').value = (ev && ev.event_date) || '';
+  // <input type="time"> forventer "HH:MM", ikke Postgres' "HH:MM:SS".
+  document.getElementById('ef-start-time').value = (ev && ev.start_time && ev.start_time.slice(0, 5)) || '';
+  document.getElementById('ef-end-time').value = (ev && ev.end_time && ev.end_time.slice(0, 5)) || '';
+  document.getElementById('ef-venue').value = (ev && ev.venue) || '';
+  document.getElementById('ef-companions').value = (ev && ev.companions) || '';
+  document.getElementById('ef-tickets').value = (ev && ev.ticket_count) || '';
+  document.getElementById('ef-notes').value = (ev && ev.notes) || '';
+  document.getElementById('event-form-delete-btn').style.display = id ? '' : 'none';
+  openModal('event-form-backdrop');
+  document.getElementById('ef-title').focus();
+}
+document.getElementById('add-event-btn').addEventListener('click', () => openEventForm(null));
+
+document.getElementById('event-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('ef-id').value;
+  const payload = {
+    title: document.getElementById('ef-title').value.trim(),
+    event_type: document.getElementById('ef-type').value,
+    status: document.getElementById('ef-status').value,
+    event_date: document.getElementById('ef-date').value,
+    start_time: document.getElementById('ef-start-time').value || null,
+    end_time: document.getElementById('ef-end-time').value || null,
+    venue: document.getElementById('ef-venue').value.trim() || null,
+    companions: document.getElementById('ef-companions').value.trim() || null,
+    ticket_count: document.getElementById('ef-tickets').value ? Number(document.getElementById('ef-tickets').value) : null,
+    notes: document.getElementById('ef-notes').value.trim() || null,
+  };
+  try {
+    if (id) await eventsApi.update(id, payload);
+    else await eventsApi.create(payload);
+    closeModal('event-form-backdrop');
+    showToast(id ? 'Event opdateret.' : 'Event tilføjet.');
+    await loadEvents();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+document.getElementById('event-form-delete-btn').addEventListener('click', async () => {
+  const id = Number(document.getElementById('ef-id').value);
+  const label = document.getElementById('ef-title').value;
+  if (!confirm(`Slet eventen "${label}"? Dette kan ikke fortrydes.`)) return;
+  try {
+    await eventsApi.remove(id);
+    closeModal('event-form-backdrop');
+    showToast('Event slettet.');
+    await loadEvents();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// ============================================================================
 // Faneblade
 // ============================================================================
 
@@ -3737,10 +4230,12 @@ function switchTab(tab) {
   document.getElementById('view-farside').style.display = tab === 'farside' ? '' : 'none';
   document.getElementById('view-plader').style.display = tab === 'plader' ? '' : 'none';
   document.getElementById('view-rejser').style.display = tab === 'rejser' ? '' : 'none';
+  document.getElementById('view-events').style.display = tab === 'events' ? '' : 'none';
   if (tab === 'jumbo' && !jumboLoadedOnce) loadJumboBooks();
   if (tab === 'comics' && !comicsLoadedOnce) loadComicYears();
   if ((tab === 'tintin' || tab === 'farside') && !seriesLoadedOnce[tab]) loadSeriesAlbums(tab);
   if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
+  if (tab === 'events' && !eventsLoadedOnce) loadEvents();
   if (tab === 'rejser') {
     if (!tripsLoadedOnce) loadTrips();
     loadTripCandidates(); // stille no-op hvis ikke logget ind — se kommentar ved tripCandidatesApi
