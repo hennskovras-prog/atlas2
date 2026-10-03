@@ -66,7 +66,6 @@
   .brand{ display:flex; align-items:baseline; gap:10px; }
   .brand h1{ font-size: 1.6rem; color: var(--accent); }
   .brand .tagline{ color: var(--text-muted); font-size: 0.85rem; }
-  .auth-control{ display:flex; align-items:center; gap:8px; font-size: 0.85rem; color: var(--text-muted); }
 
   nav.tabs{
     display:flex; gap: 4px; overflow-x:auto; padding-bottom: 0;
@@ -329,6 +328,15 @@
   .login-gate-card h1{ margin:0 0 4px; font-size:1.6rem; color: var(--accent); }
   .login-gate-card .gate-sub{ margin:0 0 18px; color: var(--text-muted); font-size:0.9rem; }
   .login-gate-card .btn{ width:100%; margin-top:6px; }
+  .login-gate-card .gate-links{ margin-top:14px; text-align:center; font-size:0.85rem; }
+
+  /* Diskret konto-linje nederst på siden */
+  .app-footer{ max-width:1280px; margin:40px auto 0; padding:16px 20px 28px; border-top:1px solid var(--border);
+    text-align:center; font-size:0.78rem; color: var(--text-muted); }
+  .app-footer .sep{ margin:0 6px; opacity:0.5; }
+  .link-btn{ background:none; border:none; padding:0; font:inherit; font-size:inherit; color: var(--text-muted);
+    text-decoration:underline; cursor:pointer; }
+  .link-btn:hover{ color: var(--accent); }
 </style>
 </head>
 <body>
@@ -339,7 +347,6 @@
       <h1>Atlas</h1>
       <span class="tagline">dit personlige kulturbibliotek</span>
     </div>
-    <div class="auth-control" id="auth-control"></div>
   </div>
   <nav class="tabs" id="tabs">
     <button class="tab-btn active" data-tab="boeger">Bøger</button>
@@ -499,6 +506,9 @@
     <div id="events-liste" style="display:none;"></div>
   </div>
 </main>
+
+<!-- Diskret konto-linje nederst: kun noget man bruger sjældent (skift kodeord / log ud). -->
+<footer class="app-footer" id="auth-control"></footer>
 
 <!-- Delt modal: detalje / enlarge -->
 <div class="modal-backdrop" id="detail-backdrop">
@@ -1025,7 +1035,50 @@
     </div>
     <div id="login-error" style="color:var(--danger); font-size:0.85rem; display:none; margin-bottom:8px;"></div>
     <button class="btn" type="submit" id="login-submit-btn">Log ind</button>
+    <div class="gate-links"><button type="button" class="link-btn" id="forgot-password-btn">Glemt kodeord?</button></div>
   </form>
+
+  <!-- Vises kun når man kommer tilbage fra linket i "glemt kodeord"-mailen -->
+  <form class="login-gate-card" id="reset-form" autocomplete="on" style="display:none;">
+    <h1>Atlas</h1>
+    <p class="gate-sub">Vælg et nyt kodeord.</p>
+    <div class="field">
+      <label for="reset-password">Nyt kodeord (mindst 8 tegn)</label>
+      <input type="password" id="reset-password" autocomplete="new-password" required minlength="8">
+    </div>
+    <div class="field">
+      <label for="reset-password2">Gentag kodeord</label>
+      <input type="password" id="reset-password2" autocomplete="new-password" required minlength="8">
+    </div>
+    <div id="reset-error" style="color:var(--danger); font-size:0.85rem; display:none; margin-bottom:8px;"></div>
+    <button class="btn" type="submit" id="reset-submit-btn">Gem nyt kodeord</button>
+  </form>
+</div>
+
+<!-- Skift kodeord (når man er logget ind) -->
+<div class="modal-backdrop" id="password-backdrop">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <h2>Skift kodeord</h2>
+      <button class="modal-close" data-close="password-backdrop">✕</button>
+    </div>
+    <form id="password-form" autocomplete="on">
+      <div class="field">
+        <label for="pw-new">Nyt kodeord (mindst 8 tegn)</label>
+        <input type="password" id="pw-new" autocomplete="new-password" required minlength="8">
+      </div>
+      <div class="field">
+        <label for="pw-new2">Gentag kodeord</label>
+        <input type="password" id="pw-new2" autocomplete="new-password" required minlength="8">
+      </div>
+      <div id="pw-error" style="color:var(--danger); font-size:0.85rem; display:none; margin-bottom:8px;"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" data-close="password-backdrop">Annullér</button>
+        <span class="spacer"></span>
+        <button type="submit" class="btn" id="pw-submit-btn">Gem</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1113,6 +1166,52 @@ async function authFetch(path, body) {
   return data;
 }
 
+/** Generel GoTrue-kald (PUT /user, POST /recover …). `bearer` = en session-token, hvis kaldet kræver login. */
+async function authCall(method, path, body, bearer) {
+  const res = await fetch(`${AUTH_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, ...(bearer ? { Authorization: 'Bearer ' + bearer } : {}) },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.error_description || data.msg || data.message || data.error || `Fejl (${res.status})`;
+    const e = new Error(res.status === 429 ? 'For mange forsøg — vent lidt og prøv igen.' : msg);
+    e.status = res.status;
+    throw e;
+  }
+  return data;
+}
+
+/** "Glemt kodeord": sender en mail med et link tilbage til denne side. Svarer altid ens, uanset om adressen findes. */
+async function requestPasswordReset(email) {
+  await authCall('POST', `/recover?redirect_to=${encodeURIComponent(location.origin + '/')}`, { email });
+}
+
+/** Sætter et nyt kodeord for den bruger, tokenet tilhører. */
+async function updatePassword(newPassword, accessToken) {
+  return authCall('PUT', '/user', { password: newPassword }, accessToken);
+}
+
+/** Læser #access_token=…&type=recovery (eller #error=…) fra linket i "glemt kodeord"-mailen. */
+function parseAuthHash() {
+  if (!location.hash || location.hash.length < 2) return null;
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('error') || h.get('error_code')) {
+    return { error: h.get('error_code') === 'otp_expired'
+      ? 'Linket er udløbet eller allerede brugt — bed om et nyt via "Glemt kodeord?".'
+      : (h.get('error_description') || 'Linket kunne ikke bruges.').replace(/\+/g, ' ') };
+  }
+  if (h.get('type') === 'recovery' && h.get('access_token')) {
+    return { recovery: {
+      access_token: h.get('access_token'),
+      refresh_token: h.get('refresh_token'),
+      expires_in: Number(h.get('expires_in')) || 3600,
+    } };
+  }
+  return null;
+}
+
 async function login(email, password) {
   const data = await authFetch('/token?grant_type=password', { email, password });
   session = {
@@ -1177,14 +1276,18 @@ async function ensureFreshSession() {
 
 function isAuthenticated() { return !!session; }
 
+/** Besked i login-gaten: rød som standard, grøn (ok) ved bekræftelser. */
+function setGateMessage(text, ok) {
+  const el = document.getElementById('login-error');
+  el.textContent = text;
+  el.style.color = ok ? 'var(--badge-ok-text)' : 'var(--danger)';
+  el.style.display = text ? '' : 'none';
+}
+
 /** Viser login-gaten og skjuler hele appen (body.locked). Appen er privat. */
 function showLoginGate(message) {
   document.body.classList.add('locked');
-  const errorEl = document.getElementById('login-error');
-  if (errorEl && message !== undefined) { // uden besked bevares en evt. eksisterende (fx "session udløbet")
-    errorEl.textContent = message;
-    errorEl.style.display = message ? '' : 'none';
-  }
+  if (message !== undefined) setGateMessage(message, false); // uden besked bevares en evt. eksisterende (fx "session udløbet")
   const emailEl = document.getElementById('login-email');
   if (emailEl && !emailEl.value) emailEl.focus();
 }
@@ -1203,10 +1306,17 @@ function requireAuthOrPrompt() {
 function renderAuthControl() {
   const el = document.getElementById('auth-control');
   el.innerHTML = isAuthenticated()
-    ? `<span>${escapeHtml(session.user && session.user.email || 'Logget ind')}</span><button class="btn secondary" id="logout-btn" style="padding:6px 10px;">Log ud</button>`
+    ? `<span>${escapeHtml(session.user && session.user.email || 'Logget ind')}</span><span class="sep">·</span><button class="link-btn" id="change-password-btn">Skift kodeord</button><span class="sep">·</span><button class="link-btn" id="logout-btn">Log ud</button>`
     : '';
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.addEventListener('click', () => { logout(); });
+  const pwBtn = document.getElementById('change-password-btn');
+  if (pwBtn) pwBtn.addEventListener('click', () => {
+    document.getElementById('password-form').reset();
+    document.getElementById('pw-error').style.display = 'none';
+    openModal('password-backdrop');
+    document.getElementById('pw-new').focus();
+  });
 }
 
 /** Headers til kald af Edge Functions: KUN med ejerens egen session-token —
@@ -1224,9 +1334,8 @@ document.getElementById('login-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
-  const errorEl = document.getElementById('login-error');
   const submitBtn = document.getElementById('login-submit-btn');
-  errorEl.style.display = 'none';
+  setGateMessage('', false);
   submitBtn.disabled = true;
   try {
     await login(email, password);
@@ -1235,10 +1344,93 @@ document.getElementById('login-form').addEventListener('submit', async (ev) => {
     if (!appStarted) startApp();
     else render();
   } catch (err) {
+    setGateMessage(err.message, false);
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+document.getElementById('forgot-password-btn').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) {
+    setGateMessage('Skriv din e-mail i feltet ovenfor først, og tryk så "Glemt kodeord?".', false);
+    return;
+  }
+  try {
+    await requestPasswordReset(email);
+    setGateMessage('Hvis adressen er den rigtige, er der sendt en mail med et link til at vælge et nyt kodeord.', true);
+  } catch (err) {
+    setGateMessage(err.message, false);
+  }
+});
+
+// Tilbage fra linket i mailen: vælg nyt kodeord, derefter er man logget ind.
+let pendingRecovery = null;
+function showResetForm(recovery) {
+  pendingRecovery = recovery;
+  document.body.classList.add('locked');
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('reset-form').style.display = '';
+  document.getElementById('reset-password').focus();
+}
+document.getElementById('reset-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const pw = document.getElementById('reset-password').value;
+  const pw2 = document.getElementById('reset-password2').value;
+  const errorEl = document.getElementById('reset-error');
+  const btn = document.getElementById('reset-submit-btn');
+  errorEl.style.display = 'none';
+  if (pw.length < 8) { errorEl.textContent = 'Kodeordet skal være mindst 8 tegn.'; errorEl.style.display = ''; return; }
+  if (pw !== pw2) { errorEl.textContent = 'De to kodeord er ikke ens.'; errorEl.style.display = ''; return; }
+  btn.disabled = true;
+  try {
+    const user = await updatePassword(pw, pendingRecovery.access_token);
+    session = {
+      access_token: pendingRecovery.access_token,
+      refresh_token: pendingRecovery.refresh_token,
+      expires_at: Date.now() + pendingRecovery.expires_in * 1000,
+      user,
+    };
+    pendingRecovery = null;
+    saveSessionToStorage(session);
+    document.getElementById('reset-form').style.display = 'none';
+    document.getElementById('login-form').style.display = '';
+    renderAuthControl();
+    hideLoginGate();
+    showToast('Nyt kodeord gemt — du er logget ind.');
+    if (!appStarted) startApp();
+  } catch (err) {
     errorEl.textContent = err.message;
     errorEl.style.display = '';
   } finally {
-    submitBtn.disabled = false;
+    btn.disabled = false;
+  }
+});
+
+// Skift kodeord, mens man er logget ind (diskret link nederst på siden).
+document.getElementById('password-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const pw = document.getElementById('pw-new').value;
+  const pw2 = document.getElementById('pw-new2').value;
+  const errorEl = document.getElementById('pw-error');
+  const btn = document.getElementById('pw-submit-btn');
+  errorEl.style.display = 'none';
+  if (pw.length < 8) { errorEl.textContent = 'Kodeordet skal være mindst 8 tegn.'; errorEl.style.display = ''; return; }
+  if (pw !== pw2) { errorEl.textContent = 'De to kodeord er ikke ens.'; errorEl.style.display = ''; return; }
+  btn.disabled = true;
+  try {
+    await ensureFreshSession();
+    if (!session) throw new Error('Din session er udløbet — log ind igen.');
+    await updatePassword(pw, session.access_token);
+    closeModal('password-backdrop');
+    showToast('Kodeord skiftet.');
+  } catch (err) {
+    errorEl.textContent = /reauth/i.test(err.message)
+      ? 'Af sikkerhedshensyn skal du logge ud og ind igen, før du kan skifte kodeord.'
+      : err.message;
+    errorEl.style.display = '';
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -4837,6 +5029,9 @@ async function startApp() {
   }
   // Privat fra start: skjul alt, indtil vi ved, at der er en gyldig session.
   document.body.classList.add('locked');
+  const authHash = parseAuthHash();
+  if (authHash) history.replaceState(null, '', location.pathname + location.search); // token skal ikke blive stående i adresselinjen
+  if (authHash && authHash.recovery) { showResetForm(authHash.recovery); return; }
   session = loadSessionFromStorage();
   await ensureFreshSession(); // viser selv gaten, hvis den gemte session ikke kan fornyes
   renderAuthControl();
@@ -4844,7 +5039,7 @@ async function startApp() {
     hideLoginGate();
     startApp();
   } else {
-    showLoginGate();
+    showLoginGate(authHash && authHash.error ? authHash.error : undefined);
   }
 })();
 </script>
