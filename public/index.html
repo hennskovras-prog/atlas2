@@ -202,12 +202,12 @@
      migrations/006_trip_candidates.sql) — samme kort/badge-sprog som resten
      af Atlas, ikke en ny visuel stil. */
   .badge.low{ background:#F0E4E4; color:var(--danger); }
-  #trip-candidates-banner{
+  #trip-candidates-banner, #event-candidates-banner{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
     background: var(--badge-dream-bg); color: var(--badge-dream-text);
     border-radius: var(--radius-sm); padding:10px 14px; margin-bottom:14px; font-size:0.88rem;
   }
-  #trip-candidates-banner button{ flex:0 0 auto; }
+  #trip-candidates-banner button, #event-candidates-banner button{ flex:0 0 auto; }
   .candidate-card{
     background: var(--bg-elevated); border:1px solid var(--border); border-radius: var(--radius);
     padding:14px 16px; margin-bottom:12px;
@@ -456,6 +456,12 @@
   <!-- Events: koncerter, teater, biograf osv. Egen fane/tabel (se
        migrations/008_events.sql), men samme visningsmønster som Rejser. -->
   <div id="view-events" style="display:none;">
+    <!-- Eventkandidater til gennemgang (billetmails fra Gmail) — kun synlig når
+         der er nogen, præcis som rejsekandidaterne. ALDRIG automatisk til en
+         rigtig event; kun Christians eget klik gør det. -->
+    <div id="event-candidates-banner" style="display:none;"></div>
+    <div id="event-candidates-panel" style="display:none;"></div>
+
     <div class="toolbar">
       <div class="view-toggle" id="events-view-toggle">
         <button type="button" class="view-toggle-btn active" data-view="oversigt">Oversigt</button>
@@ -476,6 +482,7 @@
         <option value="planned">Planlagt</option>
         <option value="attended">Oplevet</option>
       </select>
+      <button class="btn secondary" id="events-gmail-scan-btn" style="display:none;">Søg efter events i Gmail</button>
       <button class="btn" id="add-event-btn">+ Tilføj event</button>
     </div>
     <div class="count-line" id="events-count-line"></div>
@@ -948,6 +955,29 @@
   </div>
 </div>
 
+<!-- Eventkandidat: flet med eksisterende event -->
+<div class="modal-backdrop" id="event-candidate-merge-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Flet kandidat med eksisterende event</h2>
+      <button class="modal-close" data-close="event-candidate-merge-backdrop">✕</button>
+    </div>
+    <form id="event-candidate-merge-form">
+      <input type="hidden" id="ecm-candidate-id">
+      <div class="field">
+        <label for="ecm-event-select">Eksisterende event *</label>
+        <select id="ecm-event-select" required></select>
+      </div>
+      <p class="sub" style="margin:-6px 0 10px; color:var(--text-muted); font-size:0.8rem;">Kandidatens evidens knyttes til den valgte event. Kun felter, eventen endnu mangler (tidspunkt, sted, antal billetter), udfyldes fra kandidaten — intet du selv har skrevet overskrives.</p>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn secondary" data-close="event-candidate-merge-backdrop">Annullér</button>
+        <button type="submit" class="btn">Flet</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Rejse-kandidat: flet med eksisterende rejse -->
 <div class="modal-backdrop" id="candidate-merge-backdrop">
   <div class="modal">
@@ -1096,6 +1126,9 @@ async function login(email, password) {
   if (typeof loadTripCandidates === 'function' && document.getElementById('view-rejser').style.display !== 'none') {
     loadTripCandidates();
   }
+  if (typeof loadEventCandidates === 'function' && document.getElementById('view-events').style.display !== 'none') {
+    loadEventCandidates();
+  }
 }
 
 async function logout() {
@@ -1112,6 +1145,8 @@ async function logout() {
   renderAuthControl();
   tripCandidates = [];
   if (typeof renderTripCandidates === 'function') renderTripCandidates(); // kandidat-panelet kræver login, se tripCandidatesApi
+  eventCandidates = []; // samme for eventkandidater: evidensen er private mails
+  if (typeof renderEventCandidates === 'function') renderEventCandidates();
 }
 
 /** Genopfrisker access_token via refresh_token, hvis den er ved at udløbe. */
@@ -1550,6 +1585,7 @@ function closeModal(id) {
   // (gem, Annullér, ✕, klik udenfor) — ellers ville et senere "+ Tilføj
   // rejse" fejlagtigt tro, det stadig gælder en kandidat-godkendelse.
   if (id === 'trip-form-backdrop') approvingCandidateId = null;
+  if (id === 'event-form-backdrop') approvingEventCandidateId = null; // samme idé for event-kandidater
 }
 
 // Se note ved .modal-backdrop i <style>: holder --app-vh i sync med den
@@ -3898,6 +3934,7 @@ async function loadEvents() {
     eventsLoadedOnce = true;
     populateEventFilters();
     renderEvents();
+    if (typeof renderEventCandidates === 'function') renderEventCandidates(); // dublet-advarsler kræver de indlæste events
   } catch (err) {
     document.getElementById('events-oversigt').innerHTML =
       `<div class="empty-state"><div class="icon">🎭</div><div>Kunne ikke indlæse events: ${escapeHtml(err.message)}</div></div>`;
@@ -4181,12 +4218,16 @@ document.getElementById('event-form').addEventListener('submit', async (e) => {
     ticket_count: document.getElementById('ef-tickets').value ? Number(document.getElementById('ef-tickets').value) : null,
     notes: document.getElementById('ef-notes').value.trim() || null,
   };
+  const candidateId = approvingEventCandidateId; // se editApproveEventCandidate/closeModal
   try {
-    if (id) await eventsApi.update(id, payload);
-    else await eventsApi.create(payload);
+    const saved = id ? await eventsApi.update(id, payload) : await eventsApi.create(payload);
+    if (candidateId) {
+      await eventCandidatesApi.update(candidateId, { status: 'approved', linked_event_id: saved.id, reviewed_at: new Date().toISOString() });
+    }
     closeModal('event-form-backdrop');
-    showToast(id ? 'Event opdateret.' : 'Event tilføjet.');
+    showToast(id ? 'Event opdateret.' : (candidateId ? 'Event oprettet fra kandidat.' : 'Event tilføjet.'));
     await loadEvents();
+    if (candidateId) await loadEventCandidates();
   } catch (err) {
     showToast(err.message);
   }
@@ -4205,6 +4246,467 @@ document.getElementById('event-form-delete-btn').addEventListener('click', async
     showToast(err.message);
   }
 });
+
+// ============================================================================
+// Event-kandidater + Gmail-opdagelse af billetbekræftelser
+//
+// Samme review/import-princip som rejsekandidater (se migrations/009_event_
+// candidates.sql): Gmail-scanningen OPRETTER kun forslag i event_candidates —
+// en rigtig event opstår først, når Christian selv klikker Godkend / Redigér
+// og godkend / Flet. Afviste forslag slettes ikke, så samme mail ikke
+// foreslås igen (source_ref).
+//
+// Genbruger Google Identity Services-token-flowet fra rejse-scanningen
+// (requestGmailAccessToken/gmailApiGet) — samme gmail.readonly-scope, ingen
+// ny OAuth-opsætning. Kører helt i browseren; intet refresh-token gemmes.
+//
+// Hvad der læses ud af en billetmail er bevidst forsigtigt, og bygget ud fra
+// hvordan de rigtige mails faktisk ser ud:
+//  * Ticketmaster-bekræftelser har titel, sted, "Tirsdag 14. juli 2026 20.00"
+//    og "2 x billetter" på hver sin linje -> høj sikkerhed.
+//  * Billetlugens "dine billetter er klar"-mails har KUN titlen (i emnelinjen)
+//    — hverken dato eller sted. Mailens afsendelsesdato er IKKE eventens dato
+//    (billetter købes måneder i forvejen), så den bruges aldrig; kandidaten
+//    får ingen dato og kan kun godkendes via "Redigér og godkend".
+//  * Mange bekræftelser er VIDERESENDT af andre. Det videresendte mailhoveder
+//    ("Dato: søn. 10. maj 2026 kl. 11.56") ligner en eventdato og springes
+//    derfor over, ligesom ordre-/købsdatoer.
+// ============================================================================
+
+const eventCandidatesApi = {
+  list: () => pgrest('GET', '/event_candidates?' + qs({ select: '*', status: 'eq.pending', order: 'created_at.asc' })),
+  update: (id, fields) => pgrest('PATCH', '/event_candidates?' + qs({ id: `eq.${id}` }), { body: fields, singular: true }),
+  create: (fields) => pgrest('POST', '/event_candidates', { body: fields, singular: true }),
+  // Kun til Gmail-scanningen: source_ref for ALLE kandidater uanset status.
+  allSourceRefs: () => pgrest('GET', '/event_candidates?' + qs({ select: 'source_ref', source: 'eq.gmail' })),
+};
+
+let eventCandidates = [];
+let eventCandidatesPanelOpen = false;
+let approvingEventCandidateId = null; // sat mens "Redigér og godkend" har event-formularen åben
+
+async function loadEventCandidates() {
+  if (!isAuthenticated()) {
+    eventCandidates = [];
+    renderEventCandidates();
+    return;
+  }
+  try {
+    eventCandidates = await eventCandidatesApi.list();
+  } catch (err) {
+    eventCandidates = []; // kandidat-panelet er et ekstra lag; fejler stille, som hos rejser
+  }
+  renderEventCandidates();
+}
+
+function eventTitleKey(s) {
+  return normalizeText((s || '').replace(/\$/g, '')).replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// "Blød" dublet-advarsel (aldrig en spærre), som hos rejser: titlerne skal
+// indeholde hinanden (så "JESSIE WARE - The Superbloom Tour 2026" matcher
+// "Jessie Ware"), og kender begge en dato, skal den være den samme — ellers
+// er det en anden koncert med samme kunstner.
+function findDuplicateEvent(c) {
+  const a = eventTitleKey(c.suggested_title);
+  if (!a) return null;
+  for (const e of events) {
+    const b = eventTitleKey(e.title);
+    if (!b || !(a.includes(b) || b.includes(a))) continue;
+    if (c.suggested_date && e.event_date && c.suggested_date !== e.event_date) continue;
+    return e;
+  }
+  return null;
+}
+function candidateDuplicateEvent(c) {
+  return findDuplicateEvent(c) || (c.possible_duplicate_event_id ? events.find((e) => e.id === c.possible_duplicate_event_id) : null);
+}
+
+// Kandidater bærer bevis for en billet -> aldrig en løs idé: overstået dato
+// giver 'attended', ellers 'planned' (også når datoen mangler).
+function eventCandidateDefaultStatus(c) {
+  return c.suggested_date && c.suggested_date < todayIso() ? 'attended' : 'planned';
+}
+
+function eventCandidateWhenLabel(c) {
+  if (!c.suggested_date) return 'Dato mangler';
+  const stub = { event_date: c.suggested_date, start_time: c.suggested_start_time, end_time: null };
+  const time = eventTimeLabel(stub);
+  return eventDateLabel(stub) + (time ? ' · ' + time : '');
+}
+
+function eventCandidateCardHTML(c) {
+  const confidenceBadge = c.confidence
+    ? `<span class="badge ${CANDIDATE_CONFIDENCE_BADGE[c.confidence]}">${CANDIDATE_CONFIDENCE_LABEL[c.confidence]}</span>` : '';
+  const dup = candidateDuplicateEvent(c);
+  const evidenceHtml = (c.evidence || []).map((ev) => {
+    const label = escapeHtml(ev.summary || ev.type || 'Bevis');
+    const inner = ev.link ? `<a href="${escapeHtml(ev.link)}" target="_blank" rel="noopener">${label}</a>` : label;
+    return `<li>${inner}${ev.date ? ' · ' + escapeHtml(ev.date) : ''}</li>`;
+  }).join('');
+  const icon = EVENT_TYPE_ICONS[c.suggested_event_type] || '';
+  const metaParts = [
+    EVENT_TYPE_LABELS[c.suggested_event_type],
+    eventCandidateWhenLabel(c),
+    c.suggested_venue,
+    c.suggested_ticket_count ? `${c.suggested_ticket_count} billet${c.suggested_ticket_count === 1 ? '' : 'ter'}` : '',
+  ].filter(Boolean);
+  const noDate = !c.suggested_date;
+  return `
+    <div class="candidate-card" data-id="${c.id}">
+      <div class="candidate-head">
+        <span class="candidate-title">${icon} ${escapeHtml(c.suggested_title || 'Ukendt event')}</span>
+        ${confidenceBadge}
+      </div>
+      <div class="candidate-meta">${escapeHtml(metaParts.join(' · '))}</div>
+      ${noDate ? `<div class="candidate-dup">Mailen indeholder ingen eventdato — brug "Redigér og godkend" og udfyld den selv.</div>` : ''}
+      ${dup ? `<div class="candidate-dup">⚠️ Ligner måske en allerede registreret event: "${escapeHtml(dup.title)}" (${escapeHtml(formatDateDa(dup.event_date))}) — overvej "Flet" i stedet for "Godkend".</div>` : ''}
+      ${evidenceHtml ? `<ul class="candidate-evidence">${evidenceHtml}</ul>` : ''}
+      <div class="candidate-actions">
+        <button type="button" class="btn" data-action="evc-approve" data-id="${c.id}"${noDate ? ' disabled' : ''}>Godkend</button>
+        <button type="button" class="btn secondary" data-action="evc-edit-approve" data-id="${c.id}">Redigér og godkend</button>
+        <button type="button" class="btn secondary" data-action="evc-merge" data-id="${c.id}">Flet med eksisterende</button>
+        <button type="button" class="btn danger" data-action="evc-reject" data-id="${c.id}">Afvis</button>
+      </div>
+    </div>`;
+}
+
+function renderEventCandidates() {
+  // Samme betingelser som rejse-scanningen: login (skriver til event_candidates)
+  // og at Google Identity Services rent faktisk nåede at loade.
+  const gmailBtn = document.getElementById('events-gmail-scan-btn');
+  gmailBtn.style.display = (isAuthenticated() && window.google && google.accounts && google.accounts.oauth2) ? '' : 'none';
+
+  const banner = document.getElementById('event-candidates-banner');
+  const panel = document.getElementById('event-candidates-panel');
+  if (!eventCandidates.length) {
+    banner.style.display = 'none';
+    panel.style.display = 'none';
+    return;
+  }
+  banner.style.display = 'flex';
+  banner.innerHTML = `<span>🎭 ${eventCandidates.length} eventkandidat${eventCandidates.length === 1 ? '' : 'er'} venter på gennemgang</span>` +
+    `<button type="button" class="btn secondary" style="padding:5px 12px;">${eventCandidatesPanelOpen ? 'Skjul' : 'Gennemgå'}</button>`;
+  panel.style.display = eventCandidatesPanelOpen ? '' : 'none';
+  if (eventCandidatesPanelOpen) panel.innerHTML = eventCandidates.map(eventCandidateCardHTML).join('');
+}
+
+document.getElementById('event-candidates-banner').addEventListener('click', () => {
+  eventCandidatesPanelOpen = !eventCandidatesPanelOpen;
+  renderEventCandidates();
+});
+
+document.getElementById('event-candidates-panel').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn || btn.disabled) return;
+  const id = Number(btn.dataset.id);
+  if (btn.dataset.action === 'evc-approve') approveEventCandidate(id);
+  if (btn.dataset.action === 'evc-edit-approve') editApproveEventCandidate(id);
+  if (btn.dataset.action === 'evc-reject') rejectEventCandidate(id);
+  if (btn.dataset.action === 'evc-merge') openEventCandidateMerge(id);
+});
+
+async function approveEventCandidate(id) {
+  const c = eventCandidates.find((x) => x.id === id);
+  if (!c) return;
+  if (!c.suggested_date) { editApproveEventCandidate(id); return; } // event_date er påkrævet
+  if (!confirm(`Godkend og opret eventen "${c.suggested_title || 'Ukendt event'}"?`)) return;
+  try {
+    const ev = await eventsApi.create({
+      title: c.suggested_title || 'Ukendt event',
+      event_type: c.suggested_event_type || 'andet',
+      event_date: c.suggested_date,
+      start_time: c.suggested_start_time || null,
+      venue: c.suggested_venue || null,
+      ticket_count: c.suggested_ticket_count || null,
+      status: eventCandidateDefaultStatus(c),
+      source: c.source ? `kandidat: ${c.source}` : 'kandidat',
+    });
+    await eventCandidatesApi.update(id, { status: 'approved', linked_event_id: ev.id, reviewed_at: new Date().toISOString() });
+    showToast('Event oprettet fra kandidat.');
+    await loadEvents();
+    await loadEventCandidates();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+// Genbruger event-formularen 1:1 (som rejse-kandidater genbruger rejse-
+// formularen): et løst forslagsobjekt uden id = "opret ny". Selve godkendelsen
+// af kandidaten sker i formularens submit-handler, styret af
+// approvingEventCandidateId.
+function editApproveEventCandidate(id) {
+  const c = eventCandidates.find((x) => x.id === id);
+  if (!c) return;
+  approvingEventCandidateId = id;
+  openEventForm({
+    title: c.suggested_title,
+    event_type: c.suggested_event_type,
+    status: eventCandidateDefaultStatus(c),
+    event_date: c.suggested_date,
+    start_time: c.suggested_start_time,
+    venue: c.suggested_venue,
+    ticket_count: c.suggested_ticket_count,
+  });
+  document.getElementById('event-form-title').textContent = 'Godkend eventkandidat';
+}
+
+async function rejectEventCandidate(id) {
+  if (!confirm('Afvis denne eventkandidat? Den slettes ikke, så samme mail ikke foreslås igen — men forsvinder fra listen her.')) return;
+  try {
+    await eventCandidatesApi.update(id, { status: 'rejected', reviewed_at: new Date().toISOString() });
+    showToast('Kandidat afvist.');
+    await loadEventCandidates();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function openEventCandidateMerge(id) {
+  const c = eventCandidates.find((x) => x.id === id);
+  if (!c) return;
+  document.getElementById('ecm-candidate-id').value = id;
+  const sorted = events.slice().sort((a, b) => b.event_date.localeCompare(a.event_date));
+  const sel = document.getElementById('ecm-event-select');
+  sel.innerHTML = sorted.map((e) => `<option value="${e.id}">${escapeHtml(e.title)} — ${escapeHtml(formatDateDa(e.event_date))}</option>`).join('');
+  const dup = candidateDuplicateEvent(c);
+  if (dup) sel.value = String(dup.id);
+  openModal('event-candidate-merge-backdrop');
+}
+
+document.getElementById('event-candidate-merge-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const candidateId = Number(document.getElementById('ecm-candidate-id').value);
+  const eventId = Number(document.getElementById('ecm-event-select').value);
+  const c = eventCandidates.find((x) => x.id === candidateId);
+  const ev = events.find((x) => x.id === eventId);
+  if (!c || !ev) return;
+  try {
+    // Udfyld kun felter, eventen mangler — overskriv aldrig noget Christian selv har skrevet.
+    const fill = {};
+    if (!ev.start_time && c.suggested_start_time) fill.start_time = c.suggested_start_time;
+    if (!ev.venue && c.suggested_venue) fill.venue = c.suggested_venue;
+    if (!ev.ticket_count && c.suggested_ticket_count) fill.ticket_count = c.suggested_ticket_count;
+    if (Object.keys(fill).length) await eventsApi.update(eventId, fill);
+    await eventCandidatesApi.update(candidateId, { status: 'merged', linked_event_id: eventId, reviewed_at: new Date().toISOString() });
+    closeModal('event-candidate-merge-backdrop');
+    showToast(`Kandidat flettet ind i "${ev.title}".`);
+    await loadEvents();
+    await loadEventCandidates();
+  } catch (err) {
+    showToast(err.message);
+  }
+});
+
+// ---- Gmail-scanning --------------------------------------------------------
+
+// Billet-/ordrebekræftelser fanges på EMNELINJEN, ikke på afsender: Billetlugen
+// sender både nyhedsbreve og billetmails fra samme adresse, og en ren
+// afsender-søgning drukner i nyhedsbreve.
+const EVENT_GMAIL_QUERY =
+  'subject:("billetterne er dine" OR "dine billetter" OR "din billet" OR "tak for din bestilling" OR "ordrebekræftelse" OR "billetbekræftelse" OR "your tickets" OR "ticket confirmation" OR "e-billet") newer_than:3y';
+
+// Gate efter hentning: "Ordrebekræftelse" findes også hos webshops, tog osv.
+const EVENT_VENDOR_HINTS = ['ticketmaster', 'billetlugen', 'billetto', 'livenation', 'live nation', 'eventim', 'koncerthuset',
+  'kglteater', 'kongelige teater', 'royal arena', 'royalarena', 'nordiskfilm', 'nordisk film', 'cinemaxx', 'billetten.dk'];
+const EVENT_NEWSLETTER_SUBJECT_RE = /nyhed|presale|\bvind\b|rabat|tilbud|anbefal|guide til|konkurrence|early bird|sidste chance/i;
+const DK_MONTHS = { januar: 1, jan: 1, februar: 2, feb: 2, marts: 3, mar: 3, april: 4, apr: 4, maj: 5, juni: 6, jun: 6,
+  juli: 7, jul: 7, august: 8, aug: 8, september: 9, sep: 9, sept: 9, oktober: 10, okt: 10, november: 11, nov: 11, december: 12, dec: 12 };
+const EVENT_DATE_RE = /(?:(?:mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag|man|tir|ons|tor|fre|lør|søn)\.?\s+)?(\d{1,2})\.?\s+(januar|februar|marts|april|maj|juni|juli|august|september|oktober|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|okt|nov|dec)\.?\s+(\d{4})(?:\s+(?:kl\.?\s*)?(\d{1,2})[.:](\d{2}))?/i;
+// Linjer der handler om noget ANDET end eventens tidspunkt: mailhoveder i
+// videresendte mails og ordre-/købsdatoer.
+const EVENT_NON_EVENT_LINE_RE = /^\s*(fra|from|dato|date|sendt|sent|emne|subject|til|to|cc)\s*:|ordre(dato|nummer)?\b.*\d{1,2}\.\s*\w+\s+\d{4}|bestilt|købt|betalt|faktura|kvittering|oprettet|^\s*>/i;
+
+function gmailDecodeBase64Url(data) {
+  const bin = atob(data.replace(/-/g, '+').replace(/_/g, '/'));
+  return new TextDecoder('utf-8').decode(Uint8Array.from(bin, (ch) => ch.charCodeAt(0)));
+}
+function htmlToPlainText(html) {
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>|<\/(p|div|tr|td|li|h\d)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ');
+}
+// Foretrækker text/plain; falder tilbage til HTML (strippet), hvis mailen kun har den.
+function gmailBodyText(payload) {
+  const plain = [], html = [];
+  (function walk(p) {
+    if (!p) return;
+    const mt = p.mimeType || '';
+    if (p.body && p.body.data) {
+      if (mt === 'text/plain') plain.push(gmailDecodeBase64Url(p.body.data));
+      else if (mt === 'text/html') html.push(gmailDecodeBase64Url(p.body.data));
+    }
+    (p.parts || []).forEach(walk);
+  })(payload);
+  return plain.length ? plain.join('\n') : html.map(htmlToPlainText).join('\n');
+}
+
+function extractEventTitleFromSubject(subject) {
+  let s = (subject || '').replace(/^((fwd?|vs|re|sv|videresendt)\s*:\s*)+/i, '').trim();
+  const m = s.match(/ordrebekræftelse\s*:\s*(.+)$/i) || s.match(/dine billetter til\s+(.+?)\s+er klar/i) || s.match(/billetter til\s+(.+?)(?:\s+er klar|$)/i);
+  if (!m) return null;
+  // Billetlugen skriver fx "$JESSIE WARE" — $ er støj, ikke en del af titlen.
+  const title = m[1].replace(/\$/g, '').replace(/\s+/g, ' ').trim();
+  return title || null;
+}
+
+// Videresendte mails har ofte leverandøren (fx Billetlugen) kun i det
+// videresendte mailhoved øverst i brødteksten, ikke i afsender/emne — derfor
+// kigges også på brødtekstens begyndelse.
+function guessEventType(from, subject, body) {
+  const t = `${from} ${subject} ${(body || '').slice(0, 1500)}`.toLowerCase();
+  if (/nordiskfilm|nordisk film|cinemaxx|biograf|\bkino\b|cinema/.test(t)) return 'biograf';
+  if (/kglteater|kongelige teater/.test(t)) return 'teater';
+  if (EVENT_VENDOR_HINTS.some((h) => t.includes(h))) return 'koncert';
+  return 'andet';
+}
+
+// Læser dato/tid/sted/antal ud af brødteksten. Returnerer kun det, der er
+// fundet — aldrig et gæt (en forkert, overbevisende dato er værre end ingen).
+function parseEventFromBody(text, knownTitle) {
+  const cleaned = (text || '')
+    .replace(/\[https?:[^\]]*\]/g, ' ')   // Ticketmasters "Se billetter [http://...]"
+    .replace(/<https?:[^>]*>/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ');
+  const lines = cleaned.split('\n').map((l) => l.trim()).filter(Boolean);
+  const year = new Date().getFullYear();
+  const out = { date: null, start: null, venue: null, tickets: null, structured: false };
+
+  for (let i = 0; i < lines.length; i++) {
+    if (EVENT_NON_EVENT_LINE_RE.test(lines[i])) continue;
+    const m = lines[i].match(EVENT_DATE_RE);
+    if (!m) continue;
+    const y = Number(m[3]);
+    if (y < year - 3 || y > year + 3) continue;
+    out.date = `${y}-${String(DK_MONTHS[m[2].toLowerCase()]).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
+    if (m[4] !== undefined) out.start = `${String(Number(m[4])).padStart(2, '0')}:${m[5]}`;
+    // Ticketmaster-layout: titel / sted / dato-linje efter hinanden. Kun når
+    // linjen to over datoen faktisk er eventens titel, tages linjen over datoen som sted.
+    if (i >= 2 && knownTitle) {
+      const titleLine = eventTitleKey(lines[i - 2]);
+      const venueLine = lines[i - 1];
+      const wanted = eventTitleKey(knownTitle);
+      if (titleLine && wanted && (titleLine === wanted || wanted.includes(titleLine) || titleLine.includes(wanted))
+          && venueLine.length <= 60 && !/[:@]/.test(venueLine) && eventTitleKey(venueLine) !== wanted) {
+        out.venue = venueLine;
+        out.structured = true;
+      }
+    }
+    break;
+  }
+  const t = cleaned.match(/(\d+)\s*x\s*billet/i);
+  if (t) out.tickets = Number(t[1]);
+  return out;
+}
+
+function looksLikeEventTicketMail(d) {
+  if (EVENT_NEWSLETTER_SUBJECT_RE.test(d.subject) && !/dine billetter til|billetterne er dine/i.test(d.subject)) return false;
+  const hay = `${d.from} ${d.subject} ${d.body}`.toLowerCase();
+  return EVENT_VENDOR_HINTS.some((h) => hay.includes(h));
+}
+
+function senderDisplayName(from) {
+  const m = (from || '').match(/^\s*"?([^"<]+?)"?\s*</);
+  return m ? m[1].trim() : (from || '').trim();
+}
+
+// Én kandidat pr. event: flere mails om samme event (bekræftelse, "billetterne
+// er klar", videresendelser) samles via titlen.
+function buildEventCandidates(details) {
+  const groups = new Map();
+  for (const d of details) {
+    const title = extractEventTitleFromSubject(d.subject);
+    const key = title ? eventTitleKey(title) : `__order__${d.id}`;
+    const parsed = parseEventFromBody(d.body, title);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ d, title, parsed });
+  }
+  const result = [];
+  for (const items of groups.values()) {
+    const pick = (f) => items.map((x) => x.parsed[f]).find(Boolean) || null;
+    const structuredItem = items.find((x) => x.parsed.structured);
+    const best = structuredItem || items.find((x) => x.parsed.date) || items[0];
+    const title = items.map((x) => x.title).find(Boolean)
+      || `Billetordre fra ${senderDisplayName(items[0].d.from) || 'ukendt afsender'}`;
+    const date = best.parsed.date || pick('date');
+    const confidence = structuredItem ? 'high' : (date ? 'medium' : 'low');
+    result.push({
+      status: 'pending',
+      suggested_title: title,
+      suggested_event_type: guessEventType(items[0].d.from, items[0].d.subject, items[0].d.body),
+      suggested_date: date,
+      suggested_start_time: date ? (best.parsed.start || pick('start')) : null,
+      suggested_venue: pick('venue'),
+      suggested_ticket_count: pick('tickets'),
+      confidence,
+      evidence: items.map((x) => ({
+        type: 'email',
+        summary: x.d.subject || '(uden emne)',
+        date: x.d.date.toISOString().slice(0, 10),
+        link: `https://mail.google.com/mail/u/0/#all/${x.d.id}`,
+      })),
+      source: 'gmail',
+      source_ref: items.map((x) => x.d.id).join(','),
+    });
+  }
+  return result;
+}
+
+async function runEventGmailScan() {
+  const btn = document.getElementById('events-gmail-scan-btn');
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Søger…';
+  try {
+    const token = await requestGmailAccessToken();
+    gmailAccessToken = token;
+
+    const existing = await eventCandidatesApi.allSourceRefs();
+    const seenIds = new Set(existing.flatMap((c) => (c.source_ref || '').split(',').filter(Boolean)));
+
+    const params = new URLSearchParams({ q: EVENT_GMAIL_QUERY, maxResults: '40' });
+    const listResult = await gmailApiGet(`messages?${params}`, token);
+    const fresh = (listResult.messages || []).filter((m) => !seenIds.has(m.id));
+    if (!fresh.length) {
+      showToast('Ingen nye billetmails fundet i Gmail.');
+      return;
+    }
+
+    const details = [];
+    for (const m of fresh) {
+      try {
+        const full = await gmailApiGet(`messages/${m.id}?format=full`, token);
+        details.push({
+          id: m.id,
+          subject: headerValue(full.payload.headers, 'Subject'),
+          from: headerValue(full.payload.headers, 'From'),
+          date: new Date(Number(full.internalDate)),
+          body: gmailBodyText(full.payload),
+        });
+      } catch (e) { /* én slettet/utilgængelig mail må ikke vælte hele scanningen */ }
+    }
+
+    const ticketMails = details.filter(looksLikeEventTicketMail);
+    const newCandidates = buildEventCandidates(ticketMails);
+    if (!newCandidates.length) {
+      showToast('Ingen nye billetmails fundet i Gmail.');
+      return;
+    }
+    for (const c of newCandidates) await eventCandidatesApi.create(c);
+    showToast(`Fandt ${newCandidates.length} ny${newCandidates.length === 1 ? '' : 'e'} eventkandidat${newCandidates.length === 1 ? '' : 'er'} i Gmail.`);
+    eventCandidatesPanelOpen = true;
+    await loadEventCandidates();
+  } catch (err) {
+    showToast('Gmail-søgning fejlede: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('events-gmail-scan-btn').addEventListener('click', runEventGmailScan);
 
 // ============================================================================
 // Faneblade
@@ -4235,7 +4737,10 @@ function switchTab(tab) {
   if (tab === 'comics' && !comicsLoadedOnce) loadComicYears();
   if ((tab === 'tintin' || tab === 'farside') && !seriesLoadedOnce[tab]) loadSeriesAlbums(tab);
   if (tab === 'plader' && !recordsLoadedOnce) loadRecords();
-  if (tab === 'events' && !eventsLoadedOnce) loadEvents();
+  if (tab === 'events') {
+    if (!eventsLoadedOnce) loadEvents();
+    loadEventCandidates(); // stille no-op hvis ikke logget ind
+  }
   if (tab === 'rejser') {
     if (!tripsLoadedOnce) loadTrips();
     loadTripCandidates(); // stille no-op hvis ikke logget ind — se kommentar ved tripCandidatesApi
