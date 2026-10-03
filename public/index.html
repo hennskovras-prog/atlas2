@@ -268,7 +268,7 @@
 
   .field{ margin-bottom: 12px; }
   .field label{ display:block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px; font-weight:600; }
-  .field input[type="text"], .field input[type="number"], .field input[type="date"], .field input[type="url"], .field select, .field textarea{
+  .field input[type="text"], .field input[type="email"], .field input[type="password"], .field input[type="number"], .field input[type="date"], .field input[type="url"], .field select, .field textarea{
     width:100%; padding: 9px 12px; border-radius: var(--radius-sm); border:1px solid var(--border);
     background: var(--bg); color: var(--text);
   }
@@ -320,6 +320,15 @@
   .toast.show{ opacity:1; }
 
   .soon-panel{ text-align:center; padding: 80px 20px; color: var(--text-muted); }
+
+  /* Login-gate: Atlas er privat — intet indhold vises (og intet hentes), før man er logget ind. */
+  .login-gate{ display:none; min-height:100vh; align-items:center; justify-content:center; padding:20px; }
+  body.locked .login-gate{ display:flex; }
+  body.locked > *:not(.login-gate):not(.toast):not(script){ display:none !important; }
+  .login-gate-card{ width:100%; max-width:360px; background: var(--bg-elevated); border:1px solid var(--border); border-radius:12px; padding:28px 24px; box-shadow:0 6px 24px rgba(0,0,0,0.08); }
+  .login-gate-card h1{ margin:0 0 4px; font-size:1.6rem; color: var(--accent); }
+  .login-gate-card .gate-sub{ margin:0 0 18px; color: var(--text-muted); font-size:0.9rem; }
+  .login-gate-card .btn{ width:100%; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -1001,27 +1010,22 @@
   </div>
 </div>
 
-<!-- Login-modal (Supabase Auth: email + password) -->
-<div class="modal-backdrop" id="login-backdrop">
-  <div class="modal" style="max-width:360px;">
-    <div class="modal-header">
-      <h2>Log ind</h2>
-      <button class="modal-close" data-close="login-backdrop">✕</button>
-    </div>
+<!-- Login-gate (Supabase Auth: email + password). Atlas er privat: hele appen er skjult, indtil man er logget ind. -->
+<div class="login-gate" id="login-gate">
+  <form class="login-gate-card" id="login-form" autocomplete="on">
+    <h1>Atlas</h1>
+    <p class="gate-sub">Privat bibliotek — log ind for at fortsætte.</p>
     <div class="field">
       <label for="login-email">E-mail</label>
-      <input type="email" id="login-email" autocomplete="username">
+      <input type="email" id="login-email" autocomplete="username" required>
     </div>
     <div class="field">
       <label for="login-password">Kodeord</label>
-      <input type="password" id="login-password" autocomplete="current-password">
+      <input type="password" id="login-password" autocomplete="current-password" required>
     </div>
     <div id="login-error" style="color:var(--danger); font-size:0.85rem; display:none; margin-bottom:8px;"></div>
-    <div class="modal-actions">
-      <span class="spacer"></span>
-      <button class="btn" id="login-submit-btn">Log ind</button>
-    </div>
-  </div>
+    <button class="btn" type="submit" id="login-submit-btn">Log ind</button>
+  </form>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1038,8 +1042,9 @@
 
 // ---- KONFIGURATION: udfyld disse to, når dit Supabase-projekt er oprettet ----
 // Begge er beregnet til at stå i klientkode (ligesom streaming-appens egen
-// SUPABASE_URL/SUPABASE_KEY) — "anon"-nøglen er IKKE hemmelig, den er
-// begrænset af Row Level Security (se migrations/001_init.sql).
+// SUPABASE_URL/SUPABASE_KEY) — "anon"-nøglen er IKKE hemmelig. Den giver INGEN
+// adgang til data: Row Level Security (migrations/010_private_owner_only.sql)
+// tillader kun ejerens egen indloggede session at læse og skrive.
 const SUPABASE_URL = 'https://ccasocoyuzwhnrxmupze.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjYXNvY295dXp3aG5yeG11cHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMDk0MjksImV4cCI6MjEwMzU4NTQyOX0.m5M9zMd5tFImozmhIM3rozH20IEqlzbeFlGpNjoD2_U';
 
@@ -1142,11 +1147,11 @@ async function logout() {
   }
   session = null;
   saveSessionToStorage(null);
-  renderAuthControl();
-  tripCandidates = [];
-  if (typeof renderTripCandidates === 'function') renderTripCandidates(); // kandidat-panelet kræver login, se tripCandidatesApi
-  eventCandidates = []; // samme for eventkandidater: evidensen er private mails
-  if (typeof renderEventCandidates === 'function') renderEventCandidates();
+  // Atlas er privat: en hård genindlæsning er den eneste måde at være SIKKER på,
+  // at intet af indholdet (bøger, rejser, events, kandidater, covers …) bliver
+  // liggende i hukommelsen/DOM'en bag login-skærmen. Ved genstart ses ingen
+  // session, og login-gaten vises.
+  location.reload();
 }
 
 /** Genopfrisker access_token via refresh_token, hvis den er ved at udløbe. */
@@ -1163,17 +1168,35 @@ async function ensureFreshSession() {
     };
     saveSessionToStorage(session);
   } catch (e) {
-    // refresh-token udløbet/ugyldig — log stille ud, brugeren kan logge ind igen
+    // refresh-token udløbet/ugyldig — log ud og vis login-gaten igen
     session = null;
     saveSessionToStorage(null);
+    showLoginGate('Din session er udløbet — log ind igen.');
   }
 }
 
 function isAuthenticated() { return !!session; }
 
+/** Viser login-gaten og skjuler hele appen (body.locked). Appen er privat. */
+function showLoginGate(message) {
+  document.body.classList.add('locked');
+  const errorEl = document.getElementById('login-error');
+  if (errorEl && message !== undefined) { // uden besked bevares en evt. eksisterende (fx "session udløbet")
+    errorEl.textContent = message;
+    errorEl.style.display = message ? '' : 'none';
+  }
+  const emailEl = document.getElementById('login-email');
+  if (emailEl && !emailEl.value) emailEl.focus();
+}
+function hideLoginGate() {
+  document.body.classList.remove('locked');
+}
+
+/** Bevaret som sikkerhedsnet: hvis en handling mod forventning rammer en
+ *  udløbet session, vises gaten i stedet for at handlingen fejler stille. */
 function requireAuthOrPrompt() {
   if (isAuthenticated()) return true;
-  openModal('login-backdrop');
+  showLoginGate();
   return false;
 }
 
@@ -1181,27 +1204,41 @@ function renderAuthControl() {
   const el = document.getElementById('auth-control');
   el.innerHTML = isAuthenticated()
     ? `<span>${escapeHtml(session.user && session.user.email || 'Logget ind')}</span><button class="btn secondary" id="logout-btn" style="padding:6px 10px;">Log ud</button>`
-    : `<button class="btn secondary" id="login-btn" style="padding:6px 10px;">Log ind for at redigere</button>`;
-  const loginBtn = document.getElementById('login-btn');
-  if (loginBtn) loginBtn.addEventListener('click', () => openModal('login-backdrop'));
+    : '';
   const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) logoutBtn.addEventListener('click', async () => { await logout(); showToast('Logget ud.'); });
+  if (logoutBtn) logoutBtn.addEventListener('click', () => { logout(); });
 }
 
-document.getElementById('login-submit-btn').addEventListener('click', async () => {
+/** Headers til kald af Edge Functions: KUN med ejerens egen session-token —
+ *  aldrig anon-nøglen, som alle med sidens kildekode kender. */
+async function edgeFetchHeaders(extra) {
+  await ensureFreshSession();
+  if (!session) {
+    showLoginGate('Din session er udløbet — log ind igen.');
+    throw new Error('Ikke logget ind.');
+  }
+  return Object.assign({ apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + session.access_token }, extra);
+}
+
+document.getElementById('login-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errorEl = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit-btn');
   errorEl.style.display = 'none';
+  submitBtn.disabled = true;
   try {
     await login(email, password);
     document.getElementById('login-password').value = '';
-    closeModal('login-backdrop');
-    showToast('Logget ind.');
-    render(); // handlingsknapper (redigér/slet) kan nu vises anderledes
+    hideLoginGate();
+    if (!appStarted) startApp();
+    else render();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.style.display = '';
+  } finally {
+    submitBtn.disabled = false;
   }
 });
 
@@ -1212,9 +1249,15 @@ document.getElementById('login-submit-btn').addEventListener('click', async () =
 
 async function pgrest(method, path, { body, singular = false, headers: extraHeaders } = {}) {
   await ensureFreshSession();
+  // Atlas er privat: uden session sendes der ALDRIG et kald (RLS ville alligevel
+  // afvise det) — i stedet vises login-gaten.
+  if (!session) {
+    showLoginGate('Din session er udløbet — log ind igen.');
+    throw new Error('Ikke logget ind.');
+  }
   const headers = {
     apikey: SUPABASE_ANON_KEY,
-    Authorization: 'Bearer ' + (session ? session.access_token : SUPABASE_ANON_KEY),
+    Authorization: 'Bearer ' + session.access_token,
   };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (method === 'POST' || method === 'PATCH') headers['Prefer'] = 'return=representation';
@@ -1230,6 +1273,12 @@ async function pgrest(method, path, { body, singular = false, headers: extraHead
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
+  if (res.status === 401) {
+    // serveren afviser tokenet (udløbet/tilbagekaldt) — start forfra med login
+    session = null;
+    saveSessionToStorage(null);
+    showLoginGate('Din session er udløbet — log ind igen.');
+  }
   if (!res.ok) {
     const msg = (data && (data.message || data.hint || data.error_description)) || `Fejl ${res.status}`;
     throw new Error(msg);
@@ -1489,7 +1538,7 @@ const openLibraryApi = {
           + 'Sæt OPENLIBRARY_PROXY_URL / deploy Edge Function\'en, se docs/RUNNING.md.');
       }
       const res = await fetch(`${OPENLIBRARY_PROXY_URL}?action=search&q=${encodeURIComponent(q)}`, {
-        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+        headers: await edgeFetchHeaders(),
       });
       if (!res.ok) throw new Error('Open Library-proxy (Edge Function) fejlede: ' + res.status);
       return normalizeOlResults(await res.json());
@@ -1511,7 +1560,7 @@ const openLibraryApi = {
       try {
         const res = await fetch(OPENLIBRARY_PROXY_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+          headers: await edgeFetchHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ action: 'cover', url }),
         });
         if (!res.ok) return null;
@@ -2896,9 +2945,8 @@ document.getElementById('sync-discogs-btn').addEventListener('click', async () =
   btn.disabled = true;
   btn.textContent = 'Synkroniserer…';
   try {
-    await ensureFreshSession();
     const res = await fetch(DISCOGS_SYNC_URL, {
-      headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + (session ? session.access_token : SUPABASE_ANON_KEY) },
+      headers: await edgeFetchHeaders(),
     });
     const fetched = await res.json();
     if (!res.ok) throw new Error((fetched && fetched.error) || `Discogs-sync fejlede (${res.status})`);
@@ -3130,7 +3178,7 @@ async function fetchTripThumbnail(trip) {
   try {
     const res = await fetch(
       `${GOOGLE_PHOTOS_THUMBNAIL_PROXY_URL}?action=thumbnail&url=${encodeURIComponent(trip.google_photos_url)}`,
-      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY } }
+      { headers: await edgeFetchHeaders() }
     );
     if (!res.ok) return;
     const data = await res.json();
@@ -4767,19 +4815,36 @@ document.getElementById('only-unverified').addEventListener('change', (e) => { o
 // Init
 // ============================================================================
 
+// Appen starter først ÉN gang, når man er logget ind (se login-gaten). Intet
+// indhold hentes før da.
+let appStarted = false;
+async function startApp() {
+  appStarted = true;
+  try {
+    await loadBooks();
+  } catch (err) {
+    if (!session) return; // gaten vises allerede
+    document.getElementById('book-grid').innerHTML =
+      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse Atlas: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
 (async function init() {
   if (SUPABASE_URL.includes('DIT-PROJEKT')) {
     document.getElementById('book-grid').innerHTML =
       `<div class="empty-state" style="grid-column:1/-1;">Atlas 2 er ikke sat op endnu — udfyld SUPABASE_URL og SUPABASE_ANON_KEY øverst i &lt;script&gt;-blokken (se docs/RUNNING.md).</div>`;
     return;
   }
+  // Privat fra start: skjul alt, indtil vi ved, at der er en gyldig session.
+  document.body.classList.add('locked');
   session = loadSessionFromStorage();
+  await ensureFreshSession(); // viser selv gaten, hvis den gemte session ikke kan fornyes
   renderAuthControl();
-  try {
-    await loadBooks();
-  } catch (err) {
-    document.getElementById('book-grid').innerHTML =
-      `<div class="empty-state" style="grid-column:1/-1;">Kunne ikke indlæse Atlas: ${escapeHtml(err.message)}</div>`;
+  if (session) {
+    hideLoginGate();
+    startApp();
+  } else {
+    showLoginGate();
   }
 })();
 </script>

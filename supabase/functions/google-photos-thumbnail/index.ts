@@ -60,11 +60,26 @@ function toThumbnailSize(imageUrl: string): string {
   return imageUrl.replace(/=[\w-]*$/, '') + '=w400-h225-c';
 }
 
+// Kun Google Photos-delingslinks — ellers kunne funktionen bruges til at hente
+// vilkårlige adresser (SSRF). Gælder både det oplyste link og hvor det ender.
+const ALLOWED_HOSTS = ['photos.app.goo.gl', 'photos.google.com'];
+function isAllowedAlbumUrl(u: string): boolean {
+  try {
+    const parsed = new URL(u);
+    return parsed.protocol === 'https:' && ALLOWED_HOSTS.includes(parsed.hostname);
+  } catch (_) { return false; }
+}
+
 async function fetchAlbumThumbnail(albumUrl: string): Promise<string | null> {
+  if (!isAllowedAlbumUrl(albumUrl)) throw new Error('Kun Google Photos-links (photos.app.goo.gl / photos.google.com) understøttes.');
   const res = await fetch(albumUrl, {
     headers: { 'User-Agent': USER_AGENT },
     redirect: 'follow',
   });
+  const finalHost = (() => { try { return new URL(res.url).hostname; } catch (_) { return ''; } })();
+  if (!(finalHost === 'google.com' || finalHost.endsWith('.google.com') || ALLOWED_HOSTS.includes(finalHost))) {
+    throw new Error('Linket endte uden for Google.');
+  }
   if (!res.ok) throw new Error(`Kunne ikke hente Google Photos-siden: ${res.status}`);
   const html = await res.text();
   const match = html.match(OG_IMAGE_RE);
@@ -76,9 +91,33 @@ async function fetchAlbumThumbnail(albumUrl: string): Promise<string | null> {
   return toThumbnailSize(decoded);
 }
 
+// ---- Adgangskontrol: KUN ejeren ----------------------------------------------
+// verify_jwt=true afviser kald uden en gyldig JWT — men anon-nøglen ER en gyldig
+// JWT og står i sidens kildekode, så den alene er ikke adgangskontrol. Her
+// kontrolleres derfor, at kalderens token tilhører ejeren: databasefunktionen
+// public.is_owner() (migrations/010_private_owner_only.sql) svarer true KUN for
+// ejerens egen indloggede session. Anon-nøglen og andre brugere får afslag.
+async function requireOwner(req: Request): Promise<Response | null> {
+  const auth = req.headers.get('Authorization') || '';
+  const apikey = req.headers.get('apikey') || Deno.env.get('SUPABASE_ANON_KEY') || '';
+  const base = Deno.env.get('SUPABASE_URL') || '';
+  if (!/^bearer\s+\S+/i.test(auth) || !base) return json({ error: 'Ikke logget ind.' }, 401);
+  try {
+    const r = await fetch(`${base}/rest/v1/rpc/is_owner`, {
+      method: 'POST',
+      headers: { apikey, Authorization: auth, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (r.ok && (await r.json()) === true) return null;
+  } catch (_) { /* fald igennem til afslag */ }
+  return json({ error: 'Kun ejeren har adgang.' }, 403);
+}
+
 // @ts-ignore — Deno.serve findes kun i Edge Function-runtimen.
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
+  const denied = await requireOwner(req);
+  if (denied) return denied;
 
   try {
     if (req.method === 'GET') {
